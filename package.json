@@ -1,0 +1,22 @@
+{
+  "name": "boss-mode",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Web survivors-like with the roles flipped: you are the final boss, and waves of heroes come for you.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "build:single": "npm run build && node scripts/inline.mjs",
+    "typecheck": "tsc --noEmit",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "three": "^0.186.1"
+  },
+  "devDependencies": {
+    "@types/three": "^0.186.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.1"
+  }
+}

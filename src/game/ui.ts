@@ -1,0 +1,182 @@
+import { BOSSES, PASSIVES, WEAPONS, type BossId } from './config';
+import type { Choice, Game, Summary } from './game';
+
+const $ = <T extends HTMLElement = HTMLElement>(id: string): T => {
+  const el = document.getElementById(id);
+  if (!el) throw new Error(`missing #${id}`);
+  return el as T;
+};
+
+function fmt(t: number): string {
+  const s = Math.floor(t);
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
+
+interface Best { time: number; kills: number; combo: number; wins: number }
+
+function loadBest(): Best {
+  try {
+    const raw = localStorage.getItem('boss-mode-best');
+    if (raw) return { time: 0, kills: 0, combo: 0, wins: 0, ...(JSON.parse(raw) as Partial<Best>) };
+  } catch { /* storage can be blocked; bests are a nicety */ }
+  return { time: 0, kills: 0, combo: 0, wins: 0 };
+}
+
+function saveBest(b: Best): void {
+  try { localStorage.setItem('boss-mode-best', JSON.stringify(b)); } catch { /* ignore */ }
+}
+
+export class Ui {
+  private cardKeys: ((e: KeyboardEvent) => void) | null = null;
+  private lastAbilities = '';
+  private comboTimer = 0;
+
+  showTitle(onPick: (b: BossId) => void): void {
+    $('hud').classList.add('hidden');
+    for (const id of ['levelup', 'pause', 'end']) $(id).classList.add('hidden');
+    $('title').classList.remove('hidden');
+    const pick = $('boss-pick');
+    pick.innerHTML = '';
+    for (const id of Object.keys(BOSSES) as BossId[]) {
+      const b = BOSSES[id];
+      const w = WEAPONS[b.start];
+      const btn = document.createElement('button');
+      btn.className = 'boss-card';
+      btn.innerHTML = `<span class="em">${b.emoji}</span><span class="nm">${b.name}</span><span class="tt">${b.title}</span><span class="st">${w.icon} ${w.name}<br>❤️ ${b.hp} · 👟 ${b.speed}</span>`;
+      btn.onclick = () => onPick(id);
+      pick.appendChild(btn);
+    }
+    const best = loadBest();
+    $('best').textContent = best.kills ? `Best: ${fmt(best.time)} survived · ${best.kills} heroes · ${best.combo}x combo · ${best.wins} wins` : '';
+  }
+
+  startRun(): void {
+    $('title').classList.add('hidden');
+    $('end').classList.add('hidden');
+    $('hud').classList.remove('hidden');
+    $('killfeed').innerHTML = '';
+    this.lastAbilities = '';
+  }
+
+  levelUp(choices: Choice[], onChoose: (c: Choice) => void): void {
+    const wrap = $('cards');
+    wrap.innerHTML = '';
+    const pickAt = (i: number) => {
+      if (!choices[i]) return;
+      if (this.cardKeys) window.removeEventListener('keydown', this.cardKeys);
+      this.cardKeys = null;
+      $('levelup').classList.add('hidden');
+      onChoose(choices[i]);
+    };
+    choices.forEach((c, i) => {
+      const btn = document.createElement('button');
+      btn.className = 'card';
+      let icon = '🍗', name = 'Snack', lv = 'HEAL', desc = 'Heal 40 HP', isNew = false;
+      if (c.kind === 'weapon') {
+        const w = WEAPONS[c.id];
+        icon = w.icon; name = w.name; desc = w.blurb[c.level - 1];
+        isNew = c.level === 1; lv = isNew ? 'NEW!' : `LV ${c.level}`;
+      } else if (c.kind === 'passive') {
+        const p = PASSIVES[c.id];
+        icon = p.icon; name = p.name; desc = p.blurb; lv = `LV ${c.level}`; isNew = c.level === 1;
+      }
+      btn.innerHTML = `<span class="ic">${icon}</span><span class="txt"><span class="nm">${name}</span> <span class="lv${isNew ? ' new' : ''}">${lv}</span><br><span class="ds">${desc}</span></span><span class="key">press ${i + 1}</span>`;
+      btn.onclick = () => pickAt(i);
+      wrap.appendChild(btn);
+    });
+    this.cardKeys = (e: KeyboardEvent) => {
+      const n = Number(e.key);
+      if (n >= 1 && n <= 3) pickAt(n - 1);
+    };
+    window.addEventListener('keydown', this.cardKeys);
+    $('levelup').classList.remove('hidden');
+  }
+
+  update(g: Game): void {
+    $('xpfill').style.width = `${Math.min(100, (g.xp / g.xpNeed) * 100)}%`;
+    $('lvl').textContent = `LV ${g.level}`;
+    $('hpfill').style.width = `${Math.max(0, (g.hp / g.maxHp) * 100)}%`;
+    $('hptext').textContent = `${Math.max(0, Math.ceil(g.hp))} / ${Math.round(g.maxHp)}`;
+    $('timer').textContent = fmt(g.time);
+    $('kills').textContent = `💀 ${g.kills}`;
+    $('vignette').style.opacity = g.hurt > 0 ? '1' : g.hp / g.maxHp < 0.3 ? '0.45' : '0';
+    $('frenzy').style.opacity = g.frenzy > 0 ? '1' : '0';
+
+    const rage = g.rage / 100;
+    $('ragefill').style.height = `${rage * 100}%`;
+    $('roar').classList.toggle('ready', rage >= 1);
+
+    const champ = g.champions[0];
+    $('champbar').classList.toggle('hidden', !champ);
+    if (champ) {
+      $('champname').textContent = `⚔️ ${champ.tag ?? 'Champion'}`;
+      $('champfill').style.width = `${Math.max(0, (champ.hp / champ.maxHp) * 100)}%`;
+    }
+
+    const sig = [...g.weapons].map(([k, w]) => k + w.level).join() + '|' + [...g.passives].map(([k, l]) => k + l).join();
+    if (sig !== this.lastAbilities) {
+      this.lastAbilities = sig;
+      const box = $('abilities');
+      box.innerHTML = '';
+      for (const [id, w] of g.weapons) box.insertAdjacentHTML('beforeend', `<div class="ab" title="${WEAPONS[id].name}">${WEAPONS[id].icon}<i>${w.level}</i></div>`);
+      for (const [id, l] of g.passives) box.insertAdjacentHTML('beforeend', `<div class="ab passive" title="${PASSIVES[id].name}">${PASSIVES[id].icon}<i>${l}</i></div>`);
+    }
+  }
+
+  banner(title: string, sub: string): void {
+    const b = $('banner');
+    $('banner-title').textContent = title;
+    $('banner-sub').textContent = sub;
+    b.classList.remove('show');
+    void b.offsetWidth; // restart the CSS animation
+    b.classList.add('show');
+  }
+
+  killfeed(text: string): void {
+    const feed = $('killfeed');
+    const el = document.createElement('div');
+    el.className = 'kf';
+    el.textContent = text;
+    feed.prepend(el);
+    while (feed.children.length > 5) feed.lastElementChild?.remove();
+    setTimeout(() => el.remove(), 3000);
+  }
+
+  combo(n: number): void {
+    const el = $('combo');
+    window.clearTimeout(this.comboTimer);
+    if (n <= 0) { this.comboTimer = window.setTimeout(() => el.classList.remove('on'), 400); return; }
+    const word = n >= 40 ? 'LEGENDARY!' : n >= 25 ? 'UNSTOPPABLE!' : n >= 15 ? 'STRIKE!' : n >= 8 ? 'BOWLING!' : 'CRASH!';
+    el.innerHTML = `${n}x <small>${word}</small>`;
+    el.classList.add('on');
+    el.classList.remove('pulse');
+    void el.offsetWidth;
+    el.classList.add('pulse');
+  }
+
+  pause(show: boolean): void {
+    $('pause').classList.toggle('hidden', !show);
+  }
+
+  end(s: Summary, onAgain: () => void): void {
+    $('levelup').classList.add('hidden');
+    const boss = BOSSES[s.boss];
+    $('end-title').textContent = s.win ? 'VICTORY!' : 'DEFEATED!';
+    $('end-sub').textContent = s.win
+      ? `${boss.name} crushed the Chosen One. The treasure is safe!`
+      : `The heroes got ${boss.name}... this time.`;
+    const best = loadBest();
+    const rec = (v: number, b: number) => (v > b ? ' 🏆' : '');
+    $('end-stats').innerHTML = `
+      <div><b>${fmt(s.time)}${rec(s.time, best.time)}</b>survived</div>
+      <div><b>${s.kills}${rec(s.kills, best.kills)}</b>heroes beaten</div>
+      <div><b>${s.bestCombo}x${rec(s.bestCombo, best.combo)}</b>best combo</div>
+      <div><b>${s.level}</b>boss level</div>`;
+    saveBest({
+      time: Math.max(best.time, s.time), kills: Math.max(best.kills, s.kills),
+      combo: Math.max(best.combo, s.bestCombo), wins: best.wins + (s.win ? 1 : 0),
+    });
+    $('end').classList.remove('hidden');
+    $('btn-again').onclick = onAgain;
+  }
+}
