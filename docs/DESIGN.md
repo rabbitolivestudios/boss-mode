@@ -74,7 +74,7 @@ Four looks are implemented behind `?style=` so they can be compared in the real 
 | Tone for 10–14 | funny, friendly | epic, a little spooky | serious, military-ish | friendly, generic |
 | Heroes readable in a crowd of 300 | best: flat, white-bordered | good under light, weaker at the edges | smallest units | good |
 | Art cost to reach "finished" | low: 2D drawings per character | medium: lighting, VFX | high: many detailed props | low |
-| Phone performance | best: one flat quad per unit | heaviest: point lights and bloom | medium: shadow map | good |
+| Phone performance (expected, not yet measured) | best: one flat quad per unit | heaviest: point lights and bloom | medium: shadow map | good |
 | Stands out on a store page | high | low: many dark ARPG survivors | medium | low |
 
 ### Classic (original notes)

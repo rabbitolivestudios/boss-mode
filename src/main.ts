@@ -62,7 +62,7 @@ document.addEventListener('visibilitychange', () => {
 
 ui.showTitle(begin);
 // Exposed in dev builds only, so playtest scripts can read the run's numbers.
-if (import.meta.env.DEV) (window as unknown as { game: Game }).game = game;
+if (import.meta.env.MODE !== 'production') (window as unknown as { game: Game }).game = game;
 
 let last = performance.now();
 function frame(now: number): void {
