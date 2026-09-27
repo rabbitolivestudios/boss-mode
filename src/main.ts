@@ -3,6 +3,7 @@ import type { BossId } from './game/config';
 import { Game } from './game/game';
 import { Input } from './game/input';
 import { toggleMute, unlockAudio } from './game/sfx';
+import { currentStyle } from './game/style';
 import { Ui } from './game/ui';
 import { World } from './game/world';
 
@@ -12,7 +13,7 @@ const byId = (id: string): HTMLElement => {
   return el;
 };
 
-const world = new World(byId('game') as HTMLCanvasElement);
+const world = new World(byId('game') as HTMLCanvasElement, currentStyle());
 const ui = new Ui();
 const input = new Input(byId('joy-base'), byId('joy-knob'));
 // `?speed=4` fast-forwards the clock for playtesting late-game waves.

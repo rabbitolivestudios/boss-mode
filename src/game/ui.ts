@@ -1,4 +1,5 @@
 import { BOSSES, PASSIVES, WEAPONS, type BossId } from './config';
+import { STYLES, currentStyle } from './style';
 import type { Choice, Game, Summary } from './game';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string): T => {
@@ -45,6 +46,17 @@ export class Ui {
       btn.innerHTML = `<span class="em">${b.emoji}</span><span class="nm">${b.name}</span><span class="tt">${b.title}</span><span class="st">${w.icon} ${w.name}<br>❤️ ${b.hp} · 👟 ${b.speed}</span>`;
       btn.onclick = () => onPick(id);
       pick.appendChild(btn);
+    }
+    const styles = $('style-pick');
+    styles.innerHTML = 'Art style: ';
+    for (const st of STYLES) {
+      const a = document.createElement('a');
+      const url = new URL(location.href);
+      url.searchParams.set('style', st.id);
+      a.href = url.toString();
+      a.textContent = st.label;
+      if (st.id === currentStyle()) a.className = 'on';
+      styles.appendChild(a);
     }
     const best = loadBest();
     $('best').textContent = best.kills ? `Best: ${fmt(best.time)} survived · ${best.kills} heroes · ${best.combo}x combo · ${best.wins} wins` : '';

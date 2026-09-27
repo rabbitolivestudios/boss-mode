@@ -6,6 +6,7 @@ import {
 import { Fx } from './fx';
 import { buildBoss, instanced, toon, type BossModel } from './models';
 import { gamerTag } from './names';
+import { SPRITE_KINDS, SpriteBatch, bossAtlas, heroAtlas } from './paper';
 import { sfx } from './sfx';
 import type { World } from './world';
 
@@ -86,6 +87,8 @@ export class Game {
   // Meshes
   private hBody; private hHead; private hGear; private hLegL; private hLegR; private shadows;
   private mFire; private mArrow; private mGem; private mBat; private mLava; private mGob; private mGobHead; private mSpring; private mSpringTop; private mSaw; private mSnack; private mVacuum; private chestMesh: THREE.Group;
+  private paper: { heroes: SpriteBatch; boss: SpriteBatch; bossCells: Record<BossId, number[]> } | null = null;
+  private bossLight: THREE.PointLight | null = null;
   private tmp = new THREE.Object3D();
   private m4 = new THREE.Matrix4();
   private base = new THREE.Matrix4();
@@ -98,7 +101,8 @@ export class Game {
     const scene = world.scene;
     this.fx = new Fx(scene, world.camera, labelLayer);
     const cap = RUN.maxHeroes + 4;
-    const white = () => toon(0xffffff);
+    // The diorama is lit like a painted map, so its figures use matte shading instead of cartoon bands.
+    const white = () => (world.style === 'diorama' ? new THREE.MeshLambertMaterial({ color: 0xffffff }) : toon(0xffffff));
     this.hBody = instanced(new THREE.BoxGeometry(0.7, 0.75, 0.45), white(), cap);
     this.hHead = instanced(new THREE.BoxGeometry(0.55, 0.55, 0.55), white(), cap);
     this.hGear = instanced(new THREE.BoxGeometry(0.12, 0.95, 0.14), white(), cap);
@@ -134,6 +138,32 @@ export class Game {
     this.bossShadow.rotation.x = -Math.PI / 2;
     scene.add(this.bossShadow);
 
+    if (world.style === 'paper') {
+      const ha = heroAtlas();
+      const ba = bossAtlas();
+      this.paper = {
+        heroes: new SpriteBatch(ha.tex, ha.cols, ha.rows, cap + MAX_MINIONS, world.standeeTilt),
+        boss: new SpriteBatch(ba.tex, ba.cols, ba.rows, 1, world.standeeTilt),
+        bossCells: ba.cell,
+      };
+      scene.add(this.paper.heroes.mesh, this.paper.boss.mesh);
+      for (const m of [this.hBody, this.hHead, this.hGear, this.hLegL, this.hLegR, this.mGob, this.mGobHead]) m.visible = false;
+    }
+    if (world.shadows) {
+      for (const m of [this.hBody, this.hHead, this.hGear, this.hLegL, this.hLegR, this.mGob, this.mGobHead, this.mSpring, this.mSaw, this.mBat]) m.castShadow = true;
+      this.chestMesh.traverse((o) => { o.castShadow = true; });
+      this.shadows.visible = false;
+      this.bossShadow.visible = false;
+    }
+    if (world.style === 'dungeon') {
+      // Over-bright colours so the bloom pass makes spells and loot glow.
+      (this.mFire.material as THREE.MeshBasicMaterial).color.setRGB(4, 1.6, 0.4);
+      (this.mGem.material as THREE.MeshBasicMaterial).color.setScalar(2.2);
+      (this.mLava.material as THREE.MeshBasicMaterial).color.setRGB(3, 0.9, 0.2);
+      this.bossLight = new THREE.PointLight(0xffc27a, 18, 14, 1.4);
+      scene.add(this.bossLight);
+    }
+
     for (const k of Object.keys(HEROES) as HeroKind[]) {
       const d = HEROES[k];
       this.colors.set(k, [new THREE.Color(d.body), new THREE.Color(d.head), new THREE.Color(d.gear)]);
@@ -146,7 +176,9 @@ export class Game {
     const def = BOSSES[boss];
     if (this.model) this.world.scene.remove(this.model.root);
     this.model = buildBoss(boss, def.color, def.accent);
-    this.world.scene.add(this.model.root);
+    if (this.world.shadows) this.model.root.traverse((o) => { o.castShadow = true; });
+    if (!this.paper) this.world.scene.add(this.model.root);
+    this.bossLight?.color.setHex(def.accent);
     this.radius = def.radius;
     this.bossShadow.scale.setScalar(def.radius * 1.1);
     this.weapons.set(def.start, { level: 1, cd: 0.5 });
@@ -452,7 +484,7 @@ export class Game {
           h.cd = def.heal.cooldown;
           const amt = def.heal.amount * (1 + this.time / RUN.hpGrowthPeriod);
           this.near(h.x, h.z, def.heal.range, (o) => { if (o !== h && o.hp < o.maxHp) { o.hp = Math.min(o.maxHp, o.hp + amt); this.fx.burst(o.x, 1.2, o.z, 0x7dffb0, 2, 2, 0.15); } });
-          this.fx.ring(h.x, h.z, def.heal.range, 0x7dffb0, 0.4);
+          this.fx.burst(h.x, 1.6, h.z, 0x7dffb0, 4, 2, 0.14);
         }
       }
 
@@ -889,6 +921,8 @@ export class Game {
       this.model.animate(performance.now() / 1000, this.moving && this.running, this.hurt);
     }
     this.bossShadow.position.set(this.x, 0.03, this.z);
+    this.bossLight?.position.set(this.x, 3.5, this.z);
+    if (this.paper) this.renderPaper();
 
     let n = 0;
     let s = 0;
@@ -903,6 +937,11 @@ export class Game {
     };
     for (const h of this.heroes) {
       if (!h.alive) continue;
+      if (this.paper) {
+        setShadow(h.x, h.z, h.def.radius * 1.1 / (1 + h.y * 0.25));
+        if (h.aura) { h.aura.position.set(h.x, 0.05, h.z); h.aura.rotation.z = t * 2; }
+        continue;
+      }
       const sc = h.def.scale;
       const bob = Math.abs(Math.sin(h.phase)) * 0.12;
       this.tmp.position.set(h.x, h.air ? h.y : bob * sc, h.z);
@@ -1028,6 +1067,37 @@ export class Game {
     }
 
     this.placeLabels();
+  }
+
+  /** Paper style: the crowd and boss are cutout standees; flipping them left/right is the whole "turn" animation. */
+  private renderPaper(): void {
+    const p = this.paper;
+    if (!p) return;
+    const now = performance.now() / 1000;
+    p.heroes.begin();
+    for (const h of this.heroes) {
+      if (!h.alive) continue;
+      const sc = h.def.scale;
+      const size = 1.65 * sc;
+      const col = SPRITE_KINDS.indexOf(h.kind) * 2 + (Math.sin(h.phase) > 0 ? 0 : 1);
+      const y = h.air ? h.y : Math.abs(Math.sin(h.phase)) * 0.15 * sc;
+      const roll = h.air ? h.spin : Math.sin(h.phase) * 0.06;
+      p.heroes.push(h.x, y, h.z, size, size, col, h.flash > 0 ? 1 : 0, Math.sin(h.face) < 0, roll);
+    }
+    const gob = SPRITE_KINDS.indexOf('goblin') * 2;
+    for (const m of this.minions) {
+      p.heroes.push(m.x, Math.abs(Math.sin(m.phase)) * 0.3, m.z, 1.5, 1.5, gob + (Math.sin(m.phase) > 0 ? 0 : 1), 0, Math.sin(m.face) < 0);
+    }
+    p.heroes.end();
+
+    const cells = p.bossCells[this.bossId];
+    const flap = cells.length > 1 && Math.sin(now * (this.moving ? 12 : 5)) > 0 ? 1 : 0;
+    const size = this.radius * 4.6;
+    const squash = this.bossId === 'slime' ? 1 + Math.sin(now * (this.moving ? 10 : 4)) * 0.06 : 1;
+    const hop = this.bossId === 'slime' ? 0 : Math.abs(Math.sin(now * (this.moving ? 9 : 3))) * (this.moving ? 0.25 : 0.08);
+    p.boss.begin();
+    p.boss.push(this.x, hop, this.z, size / squash, size * squash, cells[flap], 0, Math.sin(this.face) < 0, this.hurt > 0 ? Math.sin(now * 60) * 0.06 : 0);
+    p.boss.end();
   }
 
   private placeLabels(): void {

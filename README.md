@@ -30,6 +30,19 @@ npm run build:single   # also writes dist/boss-mode.html, one self-contained fil
 
 Playtest the late waves quickly with `?speed=4` in the URL.
 
+## Art styles (under evaluation)
+
+The same game can be drawn four ways. Pick one on the title screen, or with the URL:
+
+| URL | Look |
+|---|---|
+| `?style=paper` | Paper Mario-style cutout standees on a construction-paper world |
+| `?style=dungeon` | bright Diablo: torch-lit stone, point lights, bloom on spells |
+| `?style=diorama` | Commandos-style painted map, houses and roads, real sun shadows |
+| `?style=classic` | the original low-poly toon look (default) |
+
+Only rendering changes between styles; the simulation is identical.
+
 ## Tech
 
 - **Three.js** + TypeScript + Vite. No game engine, no other runtime dependencies.
@@ -42,7 +55,9 @@ Playtest the late waves quickly with `?speed=4` in the URL.
 | `src/game/config.ts` | every tunable number: heroes, bosses, abilities, waves, physics |
 | `src/game/game.ts` | the simulation: spawning, AI, abilities, launch physics, loot, rendering the crowd |
 | `src/game/models.ts` | the low-poly boss models, built from primitives |
-| `src/game/world.ts` | camera, endless tiled ground and scenery |
+| `src/game/paper.ts` | paper style: code-drawn cutout atlases and the instanced standee renderer |
+| `src/game/style.ts` | which art style is active |
+| `src/game/world.ts` | per-style environment: camera, lighting, endless ground and scenery |
 | `src/game/fx.ts` | particles, shockwaves, lightning, damage numbers |
 | `src/game/ui.ts` | HUD, level-up cards, menus, best scores |
 | `src/game/input.ts` | keyboard and floating touch joystick |
