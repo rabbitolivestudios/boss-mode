@@ -64,6 +64,19 @@ These values were tuned against an automated kiting bot that picks upgrades at r
 
 **Safety for this audience:** no open chat, no loot boxes, no paid randomness. If it's ever monetized, only cosmetic boss skins with clear prices.
 
-## Art direction
+## Art direction: candidates
+
+Four looks are implemented behind `?style=` so they can be compared in the real game (see the README). None is chosen yet.
+
+| | Paper | Dungeon | Diorama | Classic |
+|---|---|---|---|---|
+| Reference | Paper Mario | bright Diablo | Commandos | generic low-poly toon |
+| Tone for 10–14 | funny, friendly | epic, a little spooky | serious, military-ish | friendly, generic |
+| Heroes readable in a crowd of 300 | best: flat, white-bordered | good under light, weaker at the edges | smallest units | good |
+| Art cost to reach "finished" | low: 2D drawings per character | medium: lighting, VFX | high: many detailed props | low |
+| Phone performance | best: one flat quad per unit | heaviest: point lights and bloom | medium: shadow map | good |
+| Stands out on a store page | high | low: many dark ARPG survivors | medium | low |
+
+### Classic (original notes)
 
 Bright, saturated low-poly with toon shading: blocky heroes built from boxes (Roblox-readable at a glance), chunky bosses built from primitives, a grassy endless arena, and big readable HUD type (Lilita One). Camera is high three-quarter top-down. Everything is generated in code today; a later pass can swap in authored `.glb` models without touching gameplay.

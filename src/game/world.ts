@@ -107,6 +107,11 @@ export class World {
     this.scene.background = new THREE.Color(0xbfe6ff);
     this.scene.fog = new THREE.Fog(0xbfe6ff, 40, 80);
     this.makeGround(paperGround(), 16, false);
+    // Cutouts are unlit, but traps, loot and chests are still 3D and need light to show their colours.
+    this.scene.add(new THREE.HemisphereLight(0xffffff, 0xb8e08a, 2.2));
+    const sun = new THREE.DirectionalLight(0xffffff, 1.6);
+    sun.position.set(4, 12, 8);
+    this.scene.add(sun);
     const atlas = propAtlas();
     const batch = new SpriteBatch(atlas.tex, atlas.cols, atlas.rows, 200, this.standeeTilt);
     this.scene.add(batch.mesh);
@@ -164,7 +169,7 @@ export class World {
     this.scene.background = new THREE.Color(0xd8cfb4);
     this.scene.fog = new THREE.Fog(0xd8cfb4, 70, 120);
     this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.scene.add(new THREE.HemisphereLight(0xfff4dc, 0x6a5a3a, 1.2));
     const sun = new THREE.DirectionalLight(0xfff0d0, 2.6);
     sun.castShadow = true;
