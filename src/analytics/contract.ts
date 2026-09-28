@@ -111,13 +111,19 @@ export interface Summary {
     medianSessionMinutes: number | null;
     /** Sessions that saw the landing page, and how many of those went on to open the game. */
     landing: { sessions: number; played: number };
-    daily: { date: string; sessions: number; seasons: number }[];
+    daily: { date: string; sessions: number; seasons: number; visitors: number; newVisitors: number; returning: number; wins: number }[];
     devices: Count[];
     browsers: Count[];
     locales: Count[];
     countries: Count[];
   };
   funnel: { key: string; label: string; n: number }[];
+  /** Sessions by weekday (Sunday = 0) and hour, Chicago time, for the when-do-they-play heatmap. */
+  hours: { weekday: number; hour: number; sessions: number }[];
+  /** The latest things that happened, newest first. Never names or ids: only kinds and categories. */
+  activity: Activity[];
+  /** The same headline numbers for the period just before, so cards can show a change. */
+  previous: { available: boolean; visitors: number; returning: number; seasons: number; wins: number } | null;
   seasons: {
     started: number;
     finished: number;
@@ -148,6 +154,17 @@ export interface Summary {
     sfxOffShare: number | null;
     nameRejectedShare: number | null;
   };
+}
+
+export interface Activity {
+  at: string;
+  kind: 'visit' | 'start' | 'win' | 'lost' | 'quit';
+  boss?: string;
+  tier?: string;
+  night?: number;
+  outcome?: string;
+  device: string;
+  country: string;
 }
 
 /** A leaderboard row as the public board serves it. */

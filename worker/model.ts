@@ -1,6 +1,6 @@
 import {
   BOSS_IDS, BROWSERS, BUILDING_IDS, DEVICES, ERROR_CODES, LOCALES, NIGHT_OUTCOMES, PICK_IDS, SEASON_OUTCOMES, TIER_IDS,
-  type BuildReport, type BuildingKey, type Count, type GameEvent, type NightReport, type NightStats, type PickKey,
+  type Activity, type BuildReport, type BuildingKey, type Count, type GameEvent, type NightReport, type NightStats, type PickKey,
   type Summary, type Traffic,
 } from '../src/analytics/contract';
 
@@ -27,7 +27,7 @@ export interface SeasonRecord {
   boss: string; tier: string; continued: boolean;
   nights: NightReport[]; builds: BuildReport[];
   picks: { night: number; level: number; offered: PickKey[]; picked: PickKey }[];
-  end: { outcome: string; nights: number; score: number; retries: number; level: number; seconds: number; allPicksAt: number | null } | null;
+  end: { outcome: string; nights: number; score: number; retries: number; level: number; seconds: number; allPicksAt: number | null; endedAt?: number } | null;
 }
 
 export class BadEvent extends Error {}
@@ -131,7 +131,7 @@ export function addToSeason(prev: SeasonRecord | undefined, e: GameEvent, now: n
   if (e.type === 'pick' && prev.picks.length < 400) return { ...prev, picks: [...prev.picks, { night: e.night, level: e.level, offered: e.offered, picked: e.picked }] };
   // A lost night can be retried, so the latest ending of a season is the one that stands.
   if (e.type === 'season_end') {
-    return { ...prev, end: { outcome: e.outcome, nights: e.nights, score: e.score, retries: e.retries, level: e.level, seconds: e.seconds, allPicksAt: e.allPicksAt } };
+    return { ...prev, end: { outcome: e.outcome, nights: e.nights, score: e.score, retries: e.retries, level: e.level, seconds: e.seconds, allPicksAt: e.allPicksAt, endedAt: now } };
   }
   return null;
 }
@@ -150,6 +150,13 @@ function counts(values: string[]): Count[] {
   return [...m].map(([key, n]) => ({ key, n })).sort((a, b) => b.n - a.n);
 }
 const day = (t: number): string => new Intl.DateTimeFormat('en-CA', { timeZone: TIME_ZONE, year: 'numeric', month: '2-digit', day: '2-digit' }).format(t);
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+function weekdayHour(t: number): [number, number] {
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone: TIME_ZONE, weekday: 'short', hour: 'numeric', hourCycle: 'h23' }).formatToParts(t);
+  const wd = WEEKDAYS.indexOf(parts.find((p) => p.type === 'weekday')?.value ?? 'Sun');
+  return [Math.max(0, wd), Number(parts.find((p) => p.type === 'hour')?.value ?? 0) % 24];
+}
+const ACTIVITY_SIZE = 14;
 
 /** The attempt that counts for each night of a season: its last one, since a retry replaces a loss. */
 function finalNights(s: SeasonRecord): NightReport[] {
@@ -171,10 +178,51 @@ export function summarize(
   for (const s of sessions) if (s.visitorKey) visitors.set(s.visitorKey, (visitors.get(s.visitorKey) ?? false) || s.newVisitor === true);
   const newVisitors = [...visitors.values()].filter(Boolean).length;
 
-  const dailyMap = new Map<string, { sessions: number; seasons: number }>();
-  for (let t = from; t <= now; t += 86400000) dailyMap.set(day(t), { sessions: 0, seasons: 0 });
-  for (const s of sessions) { const d = dailyMap.get(day(s.firstAt)); if (d) d.sessions++; }
-  for (const s of seasons) { const d = dailyMap.get(day(s.startedAt)); if (d) d.seasons++; }
+  const dailyMap = new Map<string, { sessions: number; seasons: number; visitors: number; newVisitors: number; returning: number; wins: number }>();
+  for (let t = from; t <= now; t += 86400000) dailyMap.set(day(t), { sessions: 0, seasons: 0, visitors: 0, newVisitors: 0, returning: 0, wins: 0 });
+  const seenPerDay = new Map<string, Set<string>>();
+  for (const s of sessions) {
+    const key = day(s.firstAt), d = dailyMap.get(key);
+    if (!d) continue;
+    d.sessions++;
+    if (!s.visitorKey) continue;
+    const seen = seenPerDay.get(key) ?? new Set<string>();
+    seenPerDay.set(key, seen);
+    if (seen.has(s.visitorKey)) continue;
+    seen.add(s.visitorKey);
+    d.visitors++;
+    if (s.newVisitor) d.newVisitors++; else d.returning++;
+  }
+  for (const s of seasons) {
+    const d = dailyMap.get(day(s.startedAt)); if (d) d.seasons++;
+    if (s.end?.outcome === 'win') { const w = dailyMap.get(day(s.end.endedAt ?? s.startedAt)); if (w) w.wins++; }
+  }
+  const hours = new Map<string, number>();
+  for (const s of sessions) { const [w, h] = weekdayHour(s.firstAt); hours.set(`${w}:${h}`, (hours.get(`${w}:${h}`) ?? 0) + 1); }
+  const activity: Activity[] = [];
+  const where = (sessionId: string) => sessions.find((x) => x.id === sessionId);
+  for (const s of sessions) if (s.visit) activity.push({ at: new Date(s.firstAt).toISOString(), kind: 'visit', device: s.device, country: s.country });
+  for (const s of seasons) {
+    const x = where(s.sessionId);
+    const base = { boss: s.boss, tier: s.tier, device: x?.device ?? 'desktop', country: x?.country ?? 'XX' };
+    activity.push({ ...base, at: new Date(s.startedAt).toISOString(), kind: 'start' });
+    if (s.end) {
+      const kind = s.end.outcome === 'win' ? 'win' : s.end.outcome === 'quit' ? 'quit' : 'lost';
+      activity.push({ ...base, at: new Date(s.end.endedAt ?? s.startedAt).toISOString(), kind, night: Math.min(7, s.end.nights + (kind === 'win' ? 0 : 1)), outcome: s.end.outcome });
+    }
+  }
+  activity.sort((a, b) => (a.at < b.at ? 1 : -1));
+  const prevFrom = from - days * 86400000;
+  const before = allSessions.filter((s) => s.firstAt >= prevFrom && s.firstAt < from && keep(s.test));
+  const beforeSeasons = allSeasons.filter((s) => s.startedAt >= prevFrom && s.startedAt < from && keep(s.test));
+  const beforeVisitors = new Map<string, boolean>();
+  for (const s of before) if (s.visitorKey) beforeVisitors.set(s.visitorKey, (beforeVisitors.get(s.visitorKey) ?? false) || s.newVisitor === true);
+  const previous = {
+    // Comparisons only mean something once tracking covers the whole earlier window.
+    available: trackingSince !== null && trackingSince <= prevFrom,
+    visitors: beforeVisitors.size, returning: [...beforeVisitors.values()].filter((n) => !n).length,
+    seasons: beforeSeasons.length, wins: beforeSeasons.filter((s) => s.end?.outcome === 'win').length,
+  };
 
   const bySession = new Map<string, SeasonRecord[]>();
   for (const s of seasons) bySession.set(s.sessionId, [...(bySession.get(s.sessionId) ?? []), s]);
@@ -242,6 +290,9 @@ export function summarize(
       { key: 'n5', label: 'Survived night 5', n: reached(survivedNight(5)) },
       { key: 'win', label: 'Won season', n: reached((s) => s.end?.outcome === 'win') },
     ],
+    hours: [...hours].map(([k, n]) => { const [w, h] = k.split(':').map(Number); return { weekday: w, hour: h, sessions: n }; }),
+    activity: activity.slice(0, ACTIVITY_SIZE),
+    previous,
     seasons: {
       started: seasons.length, finished: finished.length, wins: finished.filter((s) => s.end?.outcome === 'win').length,
       outcomes: counts(finished.map((s) => s.end?.outcome ?? '')),

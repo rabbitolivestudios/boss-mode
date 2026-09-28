@@ -1,130 +1,121 @@
 import './dashboard.css';
 import type { Summary } from '../analytics/contract';
-import { bars, card, columns, esc, fmt, pct, stacked, table, tile, tooltips } from './charts';
+import { esc, tooltips } from './charts';
+import { icon, type IconName } from './icons';
+import { builds, difficulty, overview, performance, players } from './sections';
 
-/** The private /analytics page: fetches the summary for the chosen period and draws it. */
+/**
+ * The private /analytics page. Loads the summary on open, every 30 seconds while the tab is
+ * visible, when the tab comes back, and on demand. A failed refresh keeps the last numbers on
+ * screen with a warning; an expired session goes back to the sign-in page.
+ */
 
-const BOSS: Record<string, string> = { dragon: '🐉 Blaze', slime: '🟢 Gloop', bonelord: '💀 Rattles' };
-const TIER: Record<string, string> = { chill: 'Chill', normal: 'Normal', heroic: 'Heroic', legendary: 'Legendary' };
-const PICK: Record<string, string> = {
-  'weapon:stomp': 'Ground Pound', 'weapon:fireball': 'Fireball', 'weapon:bats': 'Bat Swarm', 'weapon:lava': 'Lava Pools', 'weapon:lightning': 'Lightning',
-  'weapon:minions': 'Summon Goblins', 'weapon:spring': 'Spring Trap', 'weapon:saw': 'Saw Blades', 'passive:might': 'Might', 'passive:haste': 'Haste',
-  'passive:boots': 'Boots', 'passive:heart': 'Big Heart', 'passive:magnet': 'Magnet', 'passive:regen': 'Regen', 'limit:might': 'Limit: Power',
-  'limit:haste': 'Limit: Speed Up', 'limit:hp': 'Limit: Toughness', 'limit:speed': 'Limit: Speed', snack: 'Snack (heal)',
-};
-const BUILDINGS = ['wall', 'spikes', 'pad', 'saw', 'tower'] as const;
-const BUILDING: Record<string, string> = { wall: 'Wall', spikes: 'Spike pit', pad: 'Launch pad', saw: 'Saw blade', tower: 'Archer tower' };
+const TABS: { key: string; label: string; ic: IconName; draw: (s: Summary) => string }[] = [
+  { key: 'overview', label: 'Overview', ic: 'activity', draw: overview },
+  { key: 'players', label: 'Players', ic: 'users', draw: players },
+  { key: 'difficulty', label: 'Difficulty', ic: 'skull', draw: difficulty },
+  { key: 'builds', label: 'Builds & upgrades', ic: 'hammer', draw: builds },
+  { key: 'performance', label: 'Performance', ic: 'gauge', draw: performance },
+];
+const REFRESH_MS = 30000;
+const TIMEOUT_MS = 15000;
+// The same flag the game reads (as JSON), so marking this browser makes its plays test traffic.
+const TEST_KEY = 'bm-test';
 
 const root = document.getElementById('app') as HTMLElement;
 const params = new URLSearchParams(location.search);
-let days = Number(params.get('days') ?? 30);
-let traffic = params.get('traffic') ?? 'real';
+let days = [1, 7, 30, 90].includes(Number(params.get('days'))) ? Number(params.get('days')) : 7;
+let traffic = ['real', 'test', 'all'].includes(params.get('traffic') ?? '') ? (params.get('traffic') as string) : 'real';
+let tab = TABS.some((t) => t.key === params.get('tab')) ? (params.get('tab') as string) : 'overview';
+let data: Summary | null = null;
+let failedAt: Date | null = null;
+let loading = false;
 
-function controls(): string {
-  const opt = (name: string, value: string | number, label: string, current: string | number) =>
-    `<button class="chip${String(value) === String(current) ? ' on' : ''}" data-${name}="${value}" aria-pressed="${String(value) === String(current)}">${label}</button>`;
-  return `<div class="controls"><div class="group" role="group" aria-label="Period">${[[1, 'Today'], [7, '7 days'], [30, '30 days'], [90, '90 days']].map(([v, l]) => opt('days', v, String(l), days)).join('')}</div>` +
-    `<div class="group" role="group" aria-label="Traffic">${[['real', 'Players'], ['test', 'Test'], ['all', 'All']].map(([v, l]) => opt('traffic', v, l, traffic)).join('')}</div>` +
-    `<form method="post" action="/analytics/logout"><button class="chip ghost" type="submit">Sign out</button></form></div>`;
+const isTestBrowser = (): boolean => { try { return localStorage.getItem(TEST_KEY) === 'true'; } catch { return false; } };
+
+const chip = (attr: string, value: string | number, label: string, current: string | number) =>
+  `<button class="chip${String(value) === String(current) ? ' on' : ''}" data-${attr}="${value}" aria-pressed="${String(value) === String(current)}">${label}</button>`;
+
+function shell(): void {
+  root.innerHTML = `<header class="top">
+    <a class="brand" href="/" title="Back to the game"><img src="/art/logo.webp" alt="BOSS MODE" /><span><b>War room</b><small>Private analytics</small></span></a>
+    <div class="top-actions">
+      <div class="segmented">${[[1, 'Today'], [7, '7 days'], [30, '30 days'], [90, '90 days']].map(([v, l]) => chip('days', v, String(l), days)).join('')}</div>
+      <button class="btn" data-refresh>${icon('refresh', 'ic tiny')} Refresh</button>
+      <a class="btn" href="/play" target="_blank" rel="noopener">${icon('play', 'ic tiny')} Open game</a>
+      <form method="post" action="/analytics/logout"><button class="btn ghost" type="submit">${icon('logout', 'ic tiny')} Sign out</button></form>
+    </div>
+  </header>
+  <nav class="tabs">
+    <div class="tab-list" role="tablist">${TABS.map((t) => `<button role="tab" class="tab${t.key === tab ? ' on' : ''}" data-tab="${t.key}" aria-selected="${t.key === tab}">${icon(t.ic, 'ic tiny')} ${esc(t.label)}</button>`).join('')}</div>
+    <div class="tab-side">
+      <div class="segmented small">${[['real', 'Players'], ['test', 'Test'], ['all', 'All']].map(([v, l]) => chip('traffic', v, l, traffic)).join('')}</div>
+      <button class="btn small${isTestBrowser() ? ' marked' : ''}" data-testmark>${icon('flask', 'ic tiny')} ${isTestBrowser() ? 'This browser counts as test' : 'Mark this browser as test'}</button>
+    </div>
+  </nav>
+  <p class="status" id="status"></p>
+  <main id="body"><p class="empty">Loading…</p></main>
+  <footer class="foot">BOSS MODE · Rabbit &amp; Olive Studios · anonymous events only, kept 90 days, no names or ids</footer>`;
 }
 
-function render(s: Summary): string {
-  const a = s.audience, se = s.seasons;
-  const winRate = se.finished ? (se.wins / se.finished) * 100 : null;
-  const f0 = s.funnel[0]?.n || 1;
-  const nightRows = s.nights.filter((n) => n.attempts > 0);
-
-  const tiles = `<div class="tiles">${[
-    tile('Sessions', fmt(a.sessions), `median ${a.medianSessionMinutes === null ? '–' : fmt(a.medianSessionMinutes, 1) + ' min'}`),
-    tile('Players', fmt(a.visitors), `${fmt(a.newVisitors)} new · ${fmt(a.returningVisitors)} returning`),
-    tile('Seasons', fmt(se.started), `${fmt(se.finished)} finished · ${pct(se.continuedShare)} continued`),
-    tile('Win rate', pct(winRate), `${fmt(se.wins)} wins`),
-    tile('Nights reached', se.medianNights === null ? '–' : fmt(se.medianNights, 1), 'median per finished season'),
-    tile('Retries', se.retriesPerSeason === null ? '–' : fmt(se.retriesPerSeason, 2), 'per finished season'),
-    tile('Landing page', fmt(a.landing.sessions), `${pct(a.landing.sessions ? (a.landing.played / a.landing.sessions) * 100 : null)} pressed play`),
-  ].join('')}</div>`;
-
-  const daily = card('Activity', 'Sessions per day (Chicago time). Hover a day for seasons started.',
-    columns(a.daily.map((d) => ({ date: d.date.slice(5), value: d.sessions, tip: `${d.date}: ${d.sessions} sessions · ${d.seasons} seasons` }))),
-    table(['Day', 'Sessions', 'Seasons'], a.daily.map((d) => [d.date, d.sessions, d.seasons])), true);
-
-  const funnel = card('How far players get', 'Sessions reaching each stage. A retried night counts once it is survived.',
-    bars(s.funnel.map((f) => ({ label: f.label, value: f.n, text: `${fmt(f.n)} · ${pct((f.n / f0) * 100)}`, tip: `${f.label}: ${f.n} sessions` })), { max: f0, ordinal: true }),
-    table(['Stage', 'Sessions', '% of opened'], s.funnel.map((f) => [f.label, f.n, pct((f.n / f0) * 100)])));
-
-  const outcome = card('Difficulty by night', 'Every attempt at each night, retries included. Died = boss health ran out; Robbed = vault emptied.',
-    stacked(nightRows.map((n) => ({ label: `Night ${n.night}`, parts: { survived: n.survived, hp: n.hp, vault: n.vault }, note: `${fmt(n.attempts)} tries · ${pct((n.survived / n.attempts) * 100)} won` })),
-      [{ key: 'survived', label: 'Survived', slot: 1 }, { key: 'hp', label: 'Died', slot: 2 }, { key: 'vault', label: 'Robbed', slot: 3 }]),
-    table(['Night', 'Attempts', 'Survived', 'Died', 'Robbed', 'Median HP left', 'Median vault kept', 'Median building kills', 'Median level'],
-      nightRows.map((n) => [n.night, n.attempts, n.survived, n.hp, n.vault, pct(n.medianHpPct), fmt(n.medianVaultKept), pct(n.medianBuildingKillPct), fmt(n.medianLevel)])), true);
-
-  const damage = card('What hurts the boss', 'Share of damage taken each night, by source.',
-    stacked(nightRows.map((n) => ({ label: `Night ${n.night}`, parts: n.damageShare })),
-      [{ key: 'contact', label: 'Melee heroes', slot: 1 }, { key: 'arrows', label: 'Arrows', slot: 2 }, { key: 'champion', label: 'Champions', slot: 3 }], '%'),
-    table(['Night', 'Melee %', 'Arrows %', 'Champions %'], nightRows.map((n) => [n.night, n.damageShare.contact, n.damageShare.arrows, n.damageShare.champion])));
-
-  const tierCard = card('Difficulty tiers', 'Win rate of seasons started on each tier.',
-    bars(s.tiers.filter((t) => t.started).map((t) => ({ label: TIER[t.key], value: t.started ? (t.wins / t.started) * 100 : 0, text: `${pct(t.started ? (t.wins / t.started) * 100 : 0)} of ${fmt(t.started)}`, tip: `${TIER[t.key]}: ${t.wins} wins of ${t.started} seasons · median ${fmt(t.medianNights, 1)} nights` })), { max: 100 }),
-    table(['Tier', 'Seasons', 'Wins', 'Median nights'], s.tiers.map((t) => [TIER[t.key], t.started, t.wins, fmt(t.medianNights, 1)])));
-
-  const bossCard = card('Bosses', 'How often each boss is picked, and its win rate on hover.',
-    bars(s.bosses.map((b) => ({ label: BOSS[b.key], value: b.started, text: fmt(b.started), tip: `${BOSS[b.key]}: ${b.started} seasons · ${b.wins} wins · median ${fmt(b.medianNights, 1)} nights` }))),
-    table(['Boss', 'Seasons', 'Wins', 'Median nights'], s.bosses.map((b) => [BOSS[b.key], b.started, b.wins, fmt(b.medianNights, 1)])));
-
-  const picks = card('Upgrade pick rate', 'How often an upgrade is taken when it is offered. Low rates are candidates to buff.',
-    bars(s.picks.map((p) => ({ label: PICK[p.key] ?? p.key, value: p.rate, text: `${pct(p.rate)} · ${fmt(p.offered)}`, tip: `${PICK[p.key] ?? p.key}: picked ${p.picked} of ${p.offered} times offered` })), { max: 100 }),
-    table(['Upgrade', 'Offered', 'Picked', 'Rate'], s.picks.map((p) => [PICK[p.key] ?? p.key, p.offered, p.picked, pct(p.rate)])) +
-      `<p class="note">Everything maxed at a median of ${s.firstPickAllAt.medianMinutes === null ? '–' : fmt(s.firstPickAllAt.medianMinutes, 1) + ' min'} (${fmt(s.firstPickAllAt.seasons)} seasons).</p>`);
-
-  const buildRows = s.builds.filter((b) => b.phases > 0);
-  const builds = card('Building', 'Buildings placed in each build phase, all players together.',
-    // Five types exceed the three validated colour slots, so the chart groups the three traps; the table keeps all five.
-    stacked(buildRows.map((b) => ({ label: `Before night ${b.night}`, note: `${fmt(b.medianSpent)} gold`,
-      parts: { wall: b.placed.wall ?? 0, traps: (b.placed.spikes ?? 0) + (b.placed.pad ?? 0) + (b.placed.saw ?? 0), tower: b.placed.tower ?? 0 } })),
-      [{ key: 'wall', label: 'Walls', slot: 1 }, { key: 'traps', label: 'Traps (spikes, pads, saws)', slot: 2 }, { key: 'tower', label: 'Archer towers', slot: 3 }]),
-    table(['Before night', 'Phases', 'Median gold spent', 'Median seconds', 'Repaired', ...BUILDINGS.map((k) => BUILDING[k])],
-      buildRows.map((b) => [b.night, b.phases, fmt(b.medianSpent), fmt(b.medianSeconds), pct(b.repairedShare), ...BUILDINGS.map((k) => b.placed[k] ?? 0)])), true);
-
-  const breakdown = (title: string, list: { key: string; n: number }[]) =>
-    card(title, 'Share of sessions.', bars(list.slice(0, 8).map((c) => ({ label: c.key, value: c.n, text: `${pct((c.n / Math.max(1, a.sessions)) * 100)}`, tip: `${c.key}: ${c.n} sessions` }))),
-      table(['', 'Sessions'], list.map((c) => [c.key, c.n])));
-
-  const t = s.tech;
-  const tech = card('Performance and settings', 'Frames per second during raids: median and the slowest 10%.',
-    table(['Device', 'Nights measured', 'Median FPS', 'Slowest 10%'], t.fps.map((f) => [f.device, f.samples, fmt(f.median), fmt(f.low)])) +
-      `<div class="tiles small">${[
-        tile('Music off', pct(t.musicOffShare)), tile('Sound effects off', pct(t.sfxOffShare)), tile('Names refused', pct(t.nameRejectedShare)),
-        tile('Errors', fmt(t.errors.reduce((x, e) => x + e.n, 0)), t.errors.map((e) => `${e.key} ${e.n}`).join(' · ')),
-      ].join('')}</div>`,
-    table(['Error', 'Count'], t.errors.map((e) => [e.key, e.n])));
-
-  const since = s.trackingSince ? new Date(s.trackingSince).toLocaleDateString() : 'no data yet';
-  return `${tiles}<div class="grid">${daily}${funnel}${outcome}${damage}${tierCard}${bossCard}${picks}${builds}${tech}` +
-    `${breakdown('Devices', a.devices)}${breakdown('Browsers', a.browsers)}${breakdown('Languages', a.locales)}${breakdown('Countries', a.countries)}</div>` +
-    `<p class="foot">Tracking since ${esc(since)} · updated ${esc(new Date(s.generatedAt).toLocaleTimeString())} · anonymous events only, kept 90 days</p>`;
+function status(): void {
+  const el = document.getElementById('status');
+  if (!el || !data) return;
+  const chicago = (d: Date) => new Intl.DateTimeFormat('en-US', { timeZone: 'America/Chicago', hour: 'numeric', minute: '2-digit' }).format(d);
+  const since = data.trackingSince ? new Intl.DateTimeFormat('en-US', { timeZone: 'America/Chicago', month: 'short', day: 'numeric' }).format(new Date(data.trackingSince)) : 'no data yet';
+  el.innerHTML = `<span class="live${failedAt ? ' stale' : ''}"></span> ${failedAt ? `Could not refresh at ${esc(chicago(failedAt))}. Showing the last numbers.` : 'Live · refreshes every 30 s'}` +
+    ` · Updated ${esc(chicago(new Date(data.generatedAt)))} Chicago · Tracking since ${esc(since)}` +
+    (traffic !== 'real' ? ` · <b>${traffic === 'test' ? 'Test traffic only' : 'Players and test traffic'}</b>` : '');
 }
+
+function draw(): void {
+  const body = document.getElementById('body');
+  if (!body || !data) return;
+  body.innerHTML = (TABS.find((t) => t.key === tab) ?? TABS[0]).draw(data);
+  status();
+}
+
+const remember = () => history.replaceState(null, '', `?tab=${tab}&days=${days}&traffic=${traffic}`);
 
 async function load(): Promise<void> {
-  const url = `/analytics/api/summary?days=${days}&traffic=${traffic}`;
-  history.replaceState(null, '', `?days=${days}&traffic=${traffic}`);
-  root.innerHTML = `<header><h1><span>BOSS MODE</span> Analytics</h1>${controls()}</header><main id="body"><p class="empty">Loading…</p></main>`;
-  const body = document.getElementById('body') as HTMLElement;
+  if (loading) return;
+  loading = true;
+  remember();
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
   try {
-    const r = await fetch(url, { cache: 'no-store' });
+    const r = await fetch(`/analytics/api/summary?days=${days}&traffic=${traffic}`, { cache: 'no-store', credentials: 'same-origin', signal: ctrl.signal });
     if (r.status === 403) { location.reload(); return; }
     if (!r.ok) throw new Error(String(r.status));
-    body.innerHTML = render((await r.json()) as Summary);
+    data = (await r.json()) as Summary;
+    failedAt = null;
+    draw();
   } catch {
-    body.innerHTML = '<p class="empty">Could not load the numbers. Try again in a moment.</p>';
+    failedAt = new Date();
+    if (data) status();
+    else (document.getElementById('body') as HTMLElement).innerHTML = `<p class="empty">${icon('alert', 'ic tiny')} Could not load the numbers. It will retry in 30 seconds.</p>`;
+  } finally {
+    clearTimeout(timer);
+    loading = false;
   }
 }
 
 root.addEventListener('click', (e) => {
-  const b = (e.target as Element).closest<HTMLElement>('[data-days],[data-traffic]');
-  if (!b) return;
-  if (b.dataset.days) days = Number(b.dataset.days);
-  if (b.dataset.traffic) traffic = b.dataset.traffic;
+  const el = (e.target as Element).closest<HTMLElement>('[data-days],[data-traffic],[data-tab],[data-refresh],[data-testmark]');
+  if (!el) return;
+  if (el.dataset.tab) { tab = el.dataset.tab; shell(); draw(); remember(); window.scrollTo(0, 0); return; }
+  if (el.hasAttribute('data-testmark')) {
+    try { if (isTestBrowser()) localStorage.removeItem(TEST_KEY); else localStorage.setItem(TEST_KEY, 'true'); } catch { /* storage blocked */ }
+    shell(); draw(); return;
+  }
+  if (el.dataset.days) days = Number(el.dataset.days);
+  if (el.dataset.traffic) traffic = el.dataset.traffic;
+  shell();
   void load();
 });
+
+shell();
 tooltips(root);
 void load();
+setInterval(() => { if (!document.hidden) void load(); }, REFRESH_MS);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) void load(); });

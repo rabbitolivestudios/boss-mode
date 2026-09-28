@@ -72,6 +72,19 @@ describe('summarize', () => {
     expect(s.tech.musicOffShare).toBe(100);
     expect(s.audience).toMatchObject({ sessions: 1, visitors: 1, newVisitors: 1, returningVisitors: 0 });
   });
+  test('activity feed lists what happened, newest first, without ids or names', () => {
+    expect(s.activity.map((a) => a.kind)).toEqual(['lost', 'start', 'visit']);
+    expect(s.activity[0]).toMatchObject({ kind: 'lost', boss: 'slime', tier: 'heroic', night: 3, device: 'mobile', country: 'BR' });
+    expect(JSON.stringify(s.activity)).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}/);
+  });
+  test('daily rows split new from returning players, and the heatmap counts the session once', () => {
+    const today = s.audience.daily.filter((d) => d.sessions > 0);
+    expect(today).toEqual([expect.objectContaining({ sessions: 1, visitors: 1, newVisitors: 1, returning: 0, seasons: 1, wins: 0 })]);
+    expect(s.hours.reduce((n, h) => n + h.sessions, 0)).toBe(1);
+  });
+  test('no comparison is offered before tracking covers the earlier period', () => {
+    expect(s.previous?.available).toBe(false);
+  });
   test('test traffic is kept apart from real traffic', () => {
     const t = summarize([{ ...session, test: true }], [{ ...season, test: true }], 30, 'real', now, null);
     expect([t.audience.sessions, t.seasons.started]).toEqual([0, 0]);
