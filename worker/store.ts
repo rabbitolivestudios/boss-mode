@@ -21,6 +21,7 @@ export class Store extends DurableObject {
     sql.exec('CREATE TABLE IF NOT EXISTS visitors (id TEXT PRIMARY KEY, first_at INTEGER NOT NULL)');
     sql.exec('CREATE TABLE IF NOT EXISTS board (player TEXT PRIMARY KEY, score INTEGER NOT NULL, data TEXT NOT NULL)');
     sql.exec('CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value INTEGER NOT NULL)');
+    sql.exec('CREATE TABLE IF NOT EXISTS secrets (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
     sql.exec('CREATE INDEX IF NOT EXISTS sessions_first ON sessions(first_at)');
     sql.exec('CREATE INDEX IF NOT EXISTS seasons_started ON seasons(started_at)');
     sql.exec('CREATE INDEX IF NOT EXISTS board_score ON board(score)');
@@ -67,6 +68,20 @@ export class Store extends DurableObject {
         sql.exec('INSERT INTO seasons(id,started_at,data) VALUES (?,?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data', season.id, season.startedAt, JSON.stringify({ ...season, test: season.test || session.test }));
       }
     }
+  }
+
+  /**
+   * The key that signs dashboard sessions when none is set as a Worker secret: made once at random
+   * and kept only in this store, so it is never in the code, the repo or the deploy settings.
+   */
+  async sessionSecret(): Promise<string> {
+    const sql = this.ctx.storage.sql;
+    const found = sql.exec<{ value: string }>("SELECT value FROM secrets WHERE key='session'").toArray()[0];
+    if (found) return found.value;
+    const bytes = crypto.getRandomValues(new Uint8Array(32));
+    const value = btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    sql.exec("INSERT OR IGNORE INTO secrets(key,value) VALUES ('session',?)", value);
+    return sql.exec<{ value: string }>("SELECT value FROM secrets WHERE key='session'").toArray()[0].value;
   }
 
   async summary(days: number, traffic: Traffic): Promise<Summary> {

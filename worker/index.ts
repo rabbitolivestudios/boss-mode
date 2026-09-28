@@ -40,6 +40,12 @@ async function body(request: Request): Promise<unknown> {
 // A single store keeps the numbers exact; Boss Mode's traffic fits one Durable Object comfortably.
 const store = (env: Env) => env.STORE.getByName('boss-mode-v1');
 
+/** Password settings, with the session key from the store when it is not set as a Worker secret. */
+async function auth(env: Env): Promise<PasswordConfiguration> {
+  if (env.ANALYTICS_SESSION_SECRET || !env.ANALYTICS_PASSWORD_VERIFIER) return env;
+  return { ...env, ANALYTICS_SESSION_SECRET: await store(env).sessionSecret() };
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -60,7 +66,7 @@ export default {
           r.headers.set('Retry-After', '60');
           return r;
         }
-        return passwordLogin(request, env);
+        return passwordLogin(request, await auth(env));
       }
       if (path === '/analytics/logout') {
         if (request.method !== 'POST') return new Response(null, { status: 405 });
@@ -69,7 +75,7 @@ export default {
       }
       if (request.method !== 'GET') return new Response(null, { status: 405 });
       if (await limited(env.READ_LIMITER, 'admin', request)) return json({ error: 'rate' }, 429);
-      if (!(await authorizePassword(request, env))) return path === '/analytics/api/summary' ? json({ error: 'access_required' }, 403) : loginPage();
+      if (!(await authorizePassword(request, await auth(env)))) return path === '/analytics/api/summary' ? json({ error: 'access_required' }, 403) : loginPage();
       if (path === '/analytics/api/summary') {
         const days = Number(url.searchParams.get('days') ?? 30);
         const t = url.searchParams.get('traffic');

@@ -23,5 +23,9 @@
   "observability": { "enabled": true },
   // Same Cloudflare account and domain as Footy Draft (footydraft.mac-tbo.com).
   "account_id": "f22a506dedde3bb3837157cd47d5fe5c",
+  // The /analytics password as a salted PBKDF2 fingerprint (100k rounds), never the password itself.
+  // The session-signing key is generated inside the Durable Object on first use.
+  // To change the password, run node scripts/password-fingerprint.mjs and paste the result here.
+  "vars": { "ANALYTICS_PASSWORD_VERIFIER": "L1bXdiRlQ0is5w5oBK56sA.UY57TDFajv6Nqq603DShtuS5hQ-ShADVc39rs4Bw01g" },
   "routes": [{ "pattern": "bossmode.mac-tbo.com", "custom_domain": true }]
 }
