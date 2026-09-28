@@ -55,6 +55,9 @@ export interface NightReport {
   damage: { contact: number; arrows: number; champion: number };
   buildings: Partial<Record<BuildingKey, number>>;
   destroyed: number;
+  /** Thieves that reached the vault, and coins they pocketed there for good (added later; older reports lack them). */
+  grabs?: number;
+  pocketed?: number;
 }
 
 export interface BuildReport {
@@ -101,6 +104,24 @@ export interface NightStats {
   damageShare: { contact: number; arrows: number; champion: number };
 }
 
+/** One recent season, night by night, for reading a single game. Kinds and numbers only. */
+export interface SeasonDetail {
+  startedAt: string;
+  boss: string;
+  tier: string;
+  outcome: string | null;
+  score: number | null;
+  retries: number;
+  weapons: string[];
+  nights: {
+    night: number; outcome: string; seconds: number;
+    /** Gold before building, spent building, and in the vault when the raid began. */
+    goldBefore: number | null; spent: number | null; goldStart: number | null;
+    stolen: number; grabs: number | null; pocketed: number | null; vaultKept: number;
+    kills: number; hpPct: number; buildingKillPct: number; level: number; buildings: number; destroyed: number;
+  }[];
+}
+
 export interface Summary {
   generatedAt: string;
   period: { days: number; from: string; to: string };
@@ -131,6 +152,8 @@ export interface Summary {
   live: { windowMinutes: number; playing: number; inRaid: number; lastEventAt: string | null; now: { device: string; phase: string; night: number }[] };
   /** The latest things that happened, newest first. Never names or ids: only kinds and categories. */
   activity: Activity[];
+  /** The latest seasons of the period, newest first, night by night. */
+  recent: SeasonDetail[];
   /** The same headline numbers for the period just before, so cards can show a change. */
   previous: { available: boolean; visitors: number; returning: number; seasons: number; wins: number } | null;
   seasons: {

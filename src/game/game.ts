@@ -170,6 +170,8 @@ export class Game {
   nightTime = 0;
   private nightKills = 0;
   private nightStolen = 0;
+  private nightGrabs = 0;
+  private nightPocketed = 0;
   private nightRecovered = 0;
   private nightStartGold = 0;
   save: SeasonSave | null = null;
@@ -451,7 +453,7 @@ export class Game {
     this.phase = 'raid';
     this.running = true;
     this.hover = null;
-    this.nightTime = 0; this.nightKills = 0; this.nightStolen = 0; this.nightRecovered = 0; this.warnedLow = false;
+    this.nightTime = 0; this.nightKills = 0; this.nightStolen = 0; this.nightRecovered = 0; this.warnedLow = false; this.nightGrabs = 0; this.nightPocketed = 0;
     this.nightDamage = 0; this.nightBuildingKills.clear();
     this.nightStartGold = this.treasure;
     this.trackBuild();
@@ -783,7 +785,7 @@ export class Game {
       kills: this.nightKills, buildingKillPct: Math.round((byBuildings / Math.max(1, this.nightKills)) * 100), level: this.level, retries: this.retries,
       // Champion hits are also counted in contact damage; split them out so the shares add up.
       damage: { contact: Math.round(Math.max(0, d('contact') - d('champion'))), arrows: Math.round(d('arrows')), champion: Math.round(d('champion')) },
-      buildings, destroyed: Math.max(0, this.raidStart.buildings - this.castle.buildings.length),
+      buildings, destroyed: Math.max(0, this.raidStart.buildings - this.castle.buildings.length), grabs: this.nightGrabs, pocketed: this.nightPocketed,
     } });
   }
 
@@ -1079,9 +1081,10 @@ export class Game {
       if (h.actT <= 0) this.act(h, 'raise', 0.4);
       if (h.grabT >= TREASURE.grabTime) {
         h.grabT = 0;
+        this.nightGrabs++;
         // Reaching the vault costs a coin for good; only what goes in the sack can be knocked loose.
         if (Math.random() < this.difficulty.pocket) {
-          this.treasure -= 1; this.stolen += 1; this.nightStolen += 1;
+          this.treasure -= 1; this.stolen += 1; this.nightStolen += 1; this.nightPocketed++;
           this.fx.number(0, 3.4, 0, -1, true, '#ff5a5a');
         }
         h.carry = Math.min(TREASURE.carry, Math.max(0, this.treasure));

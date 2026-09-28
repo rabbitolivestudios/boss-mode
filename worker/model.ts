@@ -1,7 +1,7 @@
 import {
   BOSS_IDS, BROWSERS, PHASES, BUILDING_IDS, DEVICES, ERROR_CODES, LOCALES, NIGHT_OUTCOMES, PICK_IDS, SEASON_OUTCOMES, TIER_IDS,
   type Activity, type BuildReport, type BuildingKey, type Count, type GameEvent, type NightReport, type NightStats, type PickKey,
-  type Summary, type Traffic,
+  type SeasonDetail, type Summary, type Traffic,
 } from '../src/analytics/contract';
 
 /** Pure functions: validate client events, fold them into session and season records, summarize. */
@@ -83,6 +83,7 @@ export function normalize(raw: unknown): GameEvent {
         buildingKillPct: int(r.buildingKillPct, 0, 100), level: int(r.level, 1, 500), retries: int(r.retries, 0, 1000),
         damage: { contact: num(d.contact, 0, 1e6), arrows: num(d.arrows, 0, 1e6), champion: num(d.champion, 0, 1e6) },
         buildings: perBuilding(r.buildings), destroyed: int(r.destroyed, 0, 600),
+        ...(r.grabs === undefined ? {} : { grabs: int(r.grabs, 0, 1e5) }), ...(r.pocketed === undefined ? {} : { pocketed: int(r.pocketed, 0, 1e5) }),
       } };
     }
     case 'pick': {
@@ -200,6 +201,30 @@ function finalNights(s: SeasonRecord): NightReport[] {
   return [...byNight.values()].sort((a, b) => a.night - b.night);
 }
 const nightsSurvived = (s: SeasonRecord): number => s.end?.nights ?? finalNights(s).filter((n) => n.outcome === 'survived').length;
+
+const RECENT_SIZE = 12;
+
+/** A season night by night. A retried night appears once per attempt, each paired with its own build phase. */
+export function detail(s: SeasonRecord): SeasonDetail {
+  const seen = new Map<number, number>();
+  const nights = s.nights.map((r) => {
+    const k = seen.get(r.night) ?? 0;
+    seen.set(r.night, k + 1);
+    const b = s.builds.filter((x) => x.night === r.night)[k];
+    return {
+      night: r.night, outcome: r.outcome, seconds: r.seconds,
+      goldBefore: b ? b.gold + b.spent : null, spent: b ? b.spent : null, goldStart: b ? b.gold : null,
+      stolen: r.stolen, grabs: r.grabs ?? null, pocketed: r.pocketed ?? null, vaultKept: r.vaultKept,
+      kills: r.kills, hpPct: r.hpPct, buildingKillPct: r.buildingKillPct, level: r.level,
+      buildings: Object.values(r.buildings).reduce((a, n) => a + (n ?? 0), 0), destroyed: r.destroyed,
+    };
+  });
+  const weapons = [...new Set(s.picks.map((p) => p.picked).filter((p) => p.startsWith('weapon:')))];
+  return {
+    startedAt: new Date(s.startedAt).toISOString(), boss: s.boss, tier: s.tier, outcome: s.end?.outcome ?? null,
+    score: s.end?.score ?? null, retries: s.end?.retries ?? 0, weapons, nights,
+  };
+}
 
 export function summarize(
   allSessions: SessionRecord[], allSeasons: SeasonRecord[], days: number, traffic: Traffic, now: number, trackingSince: number | null,
@@ -338,6 +363,7 @@ export function summarize(
     ],
     hours: [...hours].map(([k, n]) => { const [w, h] = k.split(':').map(Number); return { weekday: w, hour: h, sessions: n }; }),
     live,
+    recent: [...seasons].sort((a, b) => b.startedAt - a.startedAt).slice(0, RECENT_SIZE).map(detail),
     activity: activity.slice(0, ACTIVITY_SIZE),
     previous,
     seasons: {

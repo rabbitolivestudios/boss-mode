@@ -3,6 +3,7 @@ import type { Summary } from '../analytics/contract';
 import { esc, tooltips } from './charts';
 import { icon, type IconName } from './icons';
 import { builds, difficulty, overview, performance, players } from './sections';
+import { seasons } from './seasons';
 
 /**
  * The private /analytics page. Loads the summary on open, every 30 seconds while the tab is
@@ -14,6 +15,7 @@ const TABS: { key: string; label: string; ic: IconName; draw: (s: Summary) => st
   { key: 'overview', label: 'Overview', ic: 'activity', draw: overview },
   { key: 'players', label: 'Players', ic: 'users', draw: players },
   { key: 'difficulty', label: 'Difficulty', ic: 'skull', draw: difficulty },
+  { key: 'seasons', label: 'Seasons', ic: 'swords', draw: seasons },
   { key: 'builds', label: 'Builds & upgrades', ic: 'hammer', draw: builds },
   { key: 'performance', label: 'Performance', ic: 'gauge', draw: performance },
 ];
