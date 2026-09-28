@@ -39,8 +39,8 @@ export const TREASURE = {
   carry: 3,
   /** Seconds a hero spends stuffing coins into the bag. */
   grabTime: 0.7,
-  /** Thieves are weighed down by the bag, so the boss can catch them. */
-  thiefSpeed: 0.85,
+  /** Coins knocked out of a sack per hit; defeating the thief drops the rest. */
+  knockOut: 1,
   /** Gates sit on a ring this far from the vault; heroes enter and escape through them. */
   /** Breach points sit on a ring this far from the vault (inside the castle grid). */
   gateRadius: 22,
@@ -85,11 +85,11 @@ export interface Difficulty {
   damage: number;
   loot: number;
   /**
-   * Chance a thief pockets one coin for good when it reaches the vault, before filling its sack.
-   * Hitting a thief knocks the sack loose, so without this nearly all stolen gold came home: a Heroic
-   * bot that spent down to 1 coin saw up to 58 grabs a night and lost 0 gold. Chill stays at 0 for kids.
+   * Speed of a thief carrying gold, as a share of its normal speed. Gold is only lost when a thief
+   * escapes, and when any hit emptied the whole sack a Heroic bot saw up to 58 raids a night and lost
+   * 0 gold, so on harder tiers thieves sprint away with the loot. Chill keeps them weighed down.
    */
-  pocket: number;
+  getaway: number;
 }
 
 /**
@@ -98,10 +98,10 @@ export interface Difficulty {
  * Chill is the original Normal, Normal is the original Heroic.
  */
 export const DIFFICULTIES: Difficulty[] = [
-  { id: 'chill', name: 'Chill', hp: 1, spawn: 1, damage: 1, loot: 1, pocket: 0 },
-  { id: 'normal', name: 'Normal', hp: 1.5, spawn: 1.25, damage: 1.2, loot: 1.3, pocket: 0.25 },
-  { id: 'heroic', name: 'Heroic', hp: 2.5, spawn: 1.55, damage: 1.5, loot: 1.6, pocket: 0.5 },
-  { id: 'legendary', name: 'Legendary', hp: 3.3, spawn: 1.8, damage: 1.7, loot: 2, pocket: 0.75 },
+  { id: 'chill', name: 'Chill', hp: 1, spawn: 1, damage: 1, loot: 1, getaway: 0.85 },
+  { id: 'normal', name: 'Normal', hp: 1.5, spawn: 1.25, damage: 1.2, loot: 1.3, getaway: 1 },
+  { id: 'heroic', name: 'Heroic', hp: 2.5, spawn: 1.55, damage: 1.5, loot: 1.6, getaway: 1.15 },
+  { id: 'legendary', name: 'Legendary', hp: 3.3, spawn: 1.8, damage: 1.7, loot: 2, getaway: 1.25 },
 ];
 
 /** Tiers open without winning anything, and the tier picked by default. */

@@ -19,17 +19,17 @@ function season(d: SeasonDetail): string {
     d.weapons.length ? `Powers: ${d.weapons.map((w) => PICK[w] ?? w).join(', ')}` : null,
   ].filter(Boolean).join(' · ');
   const rows = d.nights.map((r) => [
-    `Night ${r.night}`, NIGHT_OUTCOME[r.outcome] ?? r.outcome, n(r.goldBefore), n(r.spent), n(r.goldStart), n(r.grabs), n(r.pocketed), r.stolen, r.vaultKept,
+    `Night ${r.night}`, NIGHT_OUTCOME[r.outcome] ?? r.outcome, n(r.goldBefore), n(r.spent), n(r.goldStart), n(r.grabs), n(r.escapes), r.stolen, r.vaultKept,
     r.kills, `${r.hpPct}%`, `${r.buildingKillPct}%`, r.buildings, r.destroyed, r.level, `${Math.floor(r.seconds / 60)}:${String(Math.round(r.seconds % 60)).padStart(2, '0')}`,
   ]);
   const body = d.nights.length
-    ? table(['Night', 'Result', 'Gold before building', 'Spent', 'Vault at start', 'Thieves at vault', 'Pocketed', 'Stolen', 'Vault at end', 'Kills', 'Health left', 'Kills by buildings', 'Buildings', 'Destroyed', 'Level', 'Time'], rows)
+    ? table(['Night', 'Result', 'Gold before building', 'Spent', 'Vault at start', 'Thieves at vault', 'Thieves escaped', 'Stolen', 'Vault at end', 'Kills', 'Health left', 'Kills by buildings', 'Buildings', 'Destroyed', 'Level', 'Time'], rows)
     : empty('No night finished yet.');
   return card({ title, ic: d.outcome === 'win' ? 'crown' : d.outcome === 'vault' ? 'coins' : 'swords', hint, body, cls: 'wide-3' });
 }
 
 export function seasons(s: Summary): string {
   if (!s.recent.length) return empty('No seasons in this period yet.');
-  return `<p class="note">${s.recent.length === 1 ? "The latest season." : `The latest ${esc(String(s.recent.length))} seasons, newest first.`} "Thieves at vault" and "Pocketed" are recorded from this update on; older nights show –. A retried night appears once per try.</p>` +
+  return `<p class="note">${s.recent.length === 1 ? "The latest season." : `The latest ${esc(String(s.recent.length))} seasons, newest first.`} "Thieves at vault" and "Thieves escaped" are recorded from this update on; older nights show –. A retried night appears once per try.</p>` +
     `<div class="grid one">${s.recent.map(season).join('')}</div>`;
 }

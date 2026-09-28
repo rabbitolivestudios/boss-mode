@@ -159,13 +159,13 @@ describe('season detail', () => {
     const { season } = build([
       { ...ctx, type: 'visit' },
       { ...ctx, type: 'season_start', season: SEASON, boss: 'bonelord', tier: 'heroic', continued: false },
-      b(1, 60, 40), night(1, 'survived', { stolen: 3, grabs: 7, pocketed: 3, vaultKept: 57 }),
+      b(1, 60, 40), night(1, 'survived', { stolen: 3, grabs: 7, escapes: 3, vaultKept: 57 }),
       b(2, 5, 70), night(2, 'vault', { stolen: 5, vaultKept: 0 }),
       b(2, 50, 25), night(2, 'survived', { stolen: 2, vaultKept: 48 }),
       { ...ctx, type: 'pick', season: SEASON, night: 1, level: 2, offered: ['weapon:frost', 'passive:might'], picked: 'weapon:frost' },
     ]);
     const d = summarize([], [season], 7, 'real', season.startedAt + 1000, season.startedAt).recent[0];
-    expect(d.nights.map((r) => [r.night, r.outcome, r.goldBefore, r.spent, r.goldStart, r.grabs, r.pocketed])).toEqual([
+    expect(d.nights.map((r) => [r.night, r.outcome, r.goldBefore, r.spent, r.goldStart, r.grabs, r.escapes])).toEqual([
       [1, 'survived', 100, 40, 60, 7, 3],
       [2, 'vault', 75, 70, 5, null, null],
       [2, 'survived', 75, 25, 50, null, null],

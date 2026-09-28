@@ -55,9 +55,9 @@ export interface NightReport {
   damage: { contact: number; arrows: number; champion: number };
   buildings: Partial<Record<BuildingKey, number>>;
   destroyed: number;
-  /** Thieves that reached the vault, and coins they pocketed there for good (added later; older reports lack them). */
+  /** Thieves that reached the vault, and thieves that got away with gold (added later; older reports lack them). */
   grabs?: number;
-  pocketed?: number;
+  escapes?: number;
 }
 
 export interface BuildReport {
@@ -117,7 +117,7 @@ export interface SeasonDetail {
     night: number; outcome: string; seconds: number;
     /** Gold before building, spent building, and in the vault when the raid began. */
     goldBefore: number | null; spent: number | null; goldStart: number | null;
-    stolen: number; grabs: number | null; pocketed: number | null; vaultKept: number;
+    stolen: number; grabs: number | null; escapes: number | null; vaultKept: number;
     kills: number; hpPct: number; buildingKillPct: number; level: number; buildings: number; destroyed: number;
   }[];
 }

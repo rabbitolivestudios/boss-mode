@@ -83,7 +83,7 @@ export function normalize(raw: unknown): GameEvent {
         buildingKillPct: int(r.buildingKillPct, 0, 100), level: int(r.level, 1, 500), retries: int(r.retries, 0, 1000),
         damage: { contact: num(d.contact, 0, 1e6), arrows: num(d.arrows, 0, 1e6), champion: num(d.champion, 0, 1e6) },
         buildings: perBuilding(r.buildings), destroyed: int(r.destroyed, 0, 600),
-        ...(r.grabs === undefined ? {} : { grabs: int(r.grabs, 0, 1e5) }), ...(r.pocketed === undefined ? {} : { pocketed: int(r.pocketed, 0, 1e5) }),
+        ...(r.grabs === undefined ? {} : { grabs: int(r.grabs, 0, 1e5) }), ...(r.escapes === undefined ? {} : { escapes: int(r.escapes, 0, 1e5) }),
       } };
     }
     case 'pick': {
@@ -214,7 +214,7 @@ export function detail(s: SeasonRecord): SeasonDetail {
     return {
       night: r.night, outcome: r.outcome, seconds: r.seconds,
       goldBefore: b ? b.gold + b.spent : null, spent: b ? b.spent : null, goldStart: b ? b.gold : null,
-      stolen: r.stolen, grabs: r.grabs ?? null, pocketed: r.pocketed ?? null, vaultKept: r.vaultKept,
+      stolen: r.stolen, grabs: r.grabs ?? null, escapes: r.escapes ?? null, vaultKept: r.vaultKept,
       kills: r.kills, hpPct: r.hpPct, buildingKillPct: r.buildingKillPct, level: r.level,
       buildings: Object.values(r.buildings).reduce((a, n) => a + (n ?? 0), 0), destroyed: r.destroyed,
     };

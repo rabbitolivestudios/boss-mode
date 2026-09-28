@@ -171,7 +171,7 @@ export class Game {
   private nightKills = 0;
   private nightStolen = 0;
   private nightGrabs = 0;
-  private nightPocketed = 0;
+  private nightEscapes = 0;
   private nightRecovered = 0;
   private nightStartGold = 0;
   save: SeasonSave | null = null;
@@ -453,7 +453,7 @@ export class Game {
     this.phase = 'raid';
     this.running = true;
     this.hover = null;
-    this.nightTime = 0; this.nightKills = 0; this.nightStolen = 0; this.nightRecovered = 0; this.warnedLow = false; this.nightGrabs = 0; this.nightPocketed = 0;
+    this.nightTime = 0; this.nightKills = 0; this.nightStolen = 0; this.nightRecovered = 0; this.warnedLow = false; this.nightGrabs = 0; this.nightEscapes = 0;
     this.nightDamage = 0; this.nightBuildingKills.clear();
     this.nightStartGold = this.treasure;
     this.trackBuild();
@@ -785,7 +785,7 @@ export class Game {
       kills: this.nightKills, buildingKillPct: Math.round((byBuildings / Math.max(1, this.nightKills)) * 100), level: this.level, retries: this.retries,
       // Champion hits are also counted in contact damage; split them out so the shares add up.
       damage: { contact: Math.round(Math.max(0, d('contact') - d('champion'))), arrows: Math.round(d('arrows')), champion: Math.round(d('champion')) },
-      buildings, destroyed: Math.max(0, this.raidStart.buildings - this.castle.buildings.length), grabs: this.nightGrabs, pocketed: this.nightPocketed,
+      buildings, destroyed: Math.max(0, this.raidStart.buildings - this.castle.buildings.length), grabs: this.nightGrabs, escapes: this.nightEscapes,
     } });
   }
 
@@ -1082,17 +1082,12 @@ export class Game {
       if (h.grabT >= TREASURE.grabTime) {
         h.grabT = 0;
         this.nightGrabs++;
-        // Reaching the vault costs a coin for good; only what goes in the sack can be knocked loose.
-        if (Math.random() < this.difficulty.pocket) {
-          this.treasure -= 1; this.stolen += 1; this.nightStolen += 1; this.nightPocketed++;
-          this.fx.number(0, 3.4, 0, -1, true, '#ff5a5a');
-        }
         h.carry = Math.min(TREASURE.carry, Math.max(0, this.treasure));
         this.treasure -= h.carry;
         sfx.steal();
         if (!this.warnedThief) {
           this.warnedThief = true;
-          this.hooks.banner('THIEF!', this.difficulty.pocket > 0 ? 'Thieves pocket a coin at the vault. Stop them before they get there!' : 'Hit thieves to make them drop your gold');
+          this.hooks.banner('THIEF!', 'Hit thieves to knock your gold out. If they escape, it is gone!');
         }
         if (Math.random() < 0.3) this.chatter.say(h, pick(LINES.grab), 2.4 * h.def.scale);
       }
@@ -1100,7 +1095,7 @@ export class Game {
       this.escape(h);
       return true;
     } else {
-      let speed = h.def.speed * (h.carry > 0 ? TREASURE.thiefSpeed : 1);
+      let speed = h.def.speed * (h.carry > 0 ? this.difficulty.getaway : 1);
       if (h.slowT > 0) { h.slowT -= dt; speed *= CASTLE.spikeSlow; }
       h.phase += dt * speed * 2.2;
       const px = h.x, pz = h.z;
@@ -1223,6 +1218,7 @@ export class Game {
     h.alive = false;
     this.stolen += h.carry;
     this.nightStolen += h.carry;
+    this.nightEscapes++;
     const tag = h.tag ?? gamerTag();
     this.escapes.push({ tag, gold: h.carry, kind: h.kind });
     this.hooks.killfeed(`💰 ${tag} escaped with ${h.carry} gold!`);
@@ -1232,15 +1228,16 @@ export class Game {
   }
 
   /** Knocks the gold out of a thief's sack; it bounces for a moment, then flies home. */
-  private spill(h: Hero): void {
-    for (let i = 0; i < h.carry; i++) {
+  private spill(h: Hero, count: number): void {
+    const n = Math.min(count, h.carry);
+    for (let i = 0; i < n; i++) {
       const a = Math.random() * Math.PI * 2;
       this.spills.push({ x: h.x, z: h.z, y: 1.2, vx: Math.cos(a) * 3, vz: Math.sin(a) * 3, vy: 5 + Math.random() * 2, t: 0, sx: 0, sz: 0 });
     }
     this.fx.burst(h.x, 1.4, h.z, 0xffd23a, 10, 5, 0.18);
-    this.fx.number(h.x, 2.8, h.z, h.carry, true, '#ffd23a');
+    this.fx.number(h.x, 2.8, h.z, n, true, '#ffd23a');
     sfx.coin();
-    h.carry = 0;
+    h.carry -= n;
   }
 
   private updateSpills(dt: number): void {
@@ -1309,7 +1306,7 @@ export class Game {
     h.hp -= dmg;
     h.flash = 0.1;
     h.hitT = 0.22;
-    if (h.carry > 0) this.spill(h);
+    if (h.carry > 0) this.spill(h, h.hp <= 0 ? h.carry : TREASURE.knockOut);
     // Champions shrug off most knockback so they stay threatening.
     const kb = h.kind === 'champion' ? 0.15 : h.kind === 'knight' ? 0.5 : 1;
     h.kx += kx * kb; h.kz += kz * kb;
