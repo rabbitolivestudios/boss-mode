@@ -1,10 +1,11 @@
 import { BOSSES, SCORE, type BossId } from './config';
 import type { Summary } from './game';
+import { checkName } from './nameguard';
 
 /**
- * The Hall of Bosses. Players never type a name: they get a generated two-word one from lists that
- * cannot combine into anything rude, with three rerolls before it locks. Scores go to the artifact's
- * shared store when the page runs inside claude.ai with it granted, and always to this device.
+ * The Hall of Bosses. Players type their own name (checked by `nameguard`); until they do, they get a
+ * generated two-word one so nobody has to type before playing. Scores go to the artifact's shared
+ * store when the page runs inside claude.ai with it granted, and always to this device.
  */
 
 const ADJ = [
@@ -17,14 +18,13 @@ const NOUN = [
   'Ogre', 'Hydra', 'Minotaur', 'Imp', 'Werewolf', 'Phantom', 'Cyclops', 'Beholder', 'Lich', 'Basilisk', 'Mimic', 'Wyvern',
   'Griffin', 'Spider', 'Pumpkin', 'Zombie', 'Ghost', 'Blob', 'Knight', 'Robot', 'Octopus', 'Cactus', 'Toaster', 'Donut',
 ];
-const SPINS = 3;
 const TOP = 10;
 const NAME_KEY = 'boss-mode-name';
 const LOCAL_KEY = 'boss-mode-board';
 
 export interface Entry { season?: number; name: string; score: number; boss: BossId; tier: string; nights: number; win: boolean; at: number; me?: boolean }
 
-interface Identity { id: string; name: string; spins: number }
+interface Identity { id: string; name: string }
 
 function store<T>(key: string, fallback: T): T {
   try {
@@ -40,19 +40,18 @@ function keep(key: string, value: unknown): void {
 const pick = <T>(a: T[]): T => a[Math.floor(Math.random() * a.length)];
 const rollName = (): string => `${pick(ADJ)} ${pick(NOUN)}`;
 
-let identity: Identity = store<Identity | null>(NAME_KEY, null) ?? { id: `p${Math.random().toString(36).slice(2, 12)}`, name: rollName(), spins: SPINS };
+const saved = store<Identity | null>(NAME_KEY, null);
+let identity: Identity = { id: saved?.id ?? `p${Math.random().toString(36).slice(2, 12)}`, name: saved && 'name' in checkName(saved.name) ? saved.name : rollName() };
 keep(NAME_KEY, identity);
 
 export function playerName(): string { return identity.name; }
-export function spinsLeft(): number { return identity.spins; }
-
-export function rerollName(): string {
-  if (identity.spins <= 0) return identity.name;
-  let next = rollName();
-  while (next === identity.name) next = rollName();
-  identity = { ...identity, name: next, spins: identity.spins - 1 };
+/** Saves a typed name; returns why it was refused, or null when it was saved. */
+export function setPlayerName(raw: string): string | null {
+  const r = checkName(raw);
+  if ('error' in r) return r.error;
+  identity = { ...identity, name: r.name };
   keep(NAME_KEY, identity);
-  return next;
+  return null;
 }
 
 export function seasonScore(s: Summary): number {
@@ -65,8 +64,7 @@ export function seasonScore(s: Summary): number {
 function valid(d: Record<string, unknown> | undefined): Entry | null {
   if (!d) return null;
   const name = typeof d.name === 'string' ? d.name : '';
-  const [a, n, ...rest] = name.split(' ');
-  if (rest.length || !ADJ.includes(a) || !NOUN.includes(n)) return null;
+  if (!('name' in checkName(name))) return null;
   const score = Number(d.score);
   if (!Number.isFinite(score) || score < 0 || score > 1e7) return null;
   const boss = String(d.boss) as BossId;

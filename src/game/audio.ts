@@ -4,8 +4,10 @@
  * synthesized, so there are no audio files to download and nothing to license.
  */
 
-export type SoundSetting = 'all' | 'sfx' | 'off';
-const SETTING_KEY = 'boss-mode-sound';
+/** Music and sound effects switch on and off separately; both are remembered on this device. */
+export interface SoundPrefs { music: boolean; sfx: boolean }
+const PREFS_KEY = 'boss-mode-sound-prefs';
+const OLD_KEY = 'boss-mode-sound';
 const MUSIC_LEVEL = 0.55;
 const SFX_LEVEL = 0.9;
 
@@ -13,20 +15,27 @@ export interface Engine {
   ctx: AudioContext;
   music: GainNode;
   sfx: GainNode;
-  /** Send to the shared room reverb; both buses can use it. */
-  reverb: GainNode;
+  /** Reverb sends. Each returns into its own bus, so muting music or effects silences their echoes too. */
+  musicVerb: GainNode;
+  sfxVerb: GainNode;
   noise: AudioBuffer;
 }
 
 let engine: Engine | null = null;
-let setting: SoundSetting = readSetting();
+let prefs: SoundPrefs = readPrefs();
 let ducked = 1;
 
-function readSetting(): SoundSetting {
+function readPrefs(): SoundPrefs {
   try {
-    const v = localStorage.getItem(SETTING_KEY);
-    return v === 'sfx' || v === 'off' ? v : 'all';
-  } catch { return 'all'; }
+    const raw = localStorage.getItem(PREFS_KEY);
+    if (raw) {
+      const p = JSON.parse(raw) as Partial<SoundPrefs>;
+      return { music: p.music !== false, sfx: p.sfx !== false };
+    }
+    // The earlier single button cycled all / effects only / off.
+    const old = localStorage.getItem(OLD_KEY);
+    return { music: old !== 'sfx' && old !== 'off', sfx: old !== 'off' };
+  } catch { return { music: true, sfx: true }; }
 }
 
 export function getEngine(): Engine | null {
@@ -46,17 +55,21 @@ export function unlockAudio(): void {
     const sfx = ctx.createGain();
     music.connect(comp); sfx.connect(comp);
 
-    const reverb = ctx.createGain();
-    reverb.gain.value = 0.9;
-    const conv = ctx.createConvolver();
-    conv.buffer = impulse(ctx, 2.2, 2.6);
-    reverb.connect(conv).connect(comp);
+    const room = impulse(ctx, 2.2, 2.6);
+    const verb = (bus: GainNode): GainNode => {
+      const send = ctx.createGain();
+      send.gain.value = 0.9;
+      const conv = ctx.createConvolver();
+      conv.buffer = room;
+      send.connect(conv).connect(bus);
+      return send;
+    };
 
     const noise = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
     const d = noise.getChannelData(0);
     for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
 
-    engine = { ctx, music, sfx, reverb, noise };
+    engine = { ctx, music, sfx, musicVerb: verb(music), sfxVerb: verb(sfx), noise };
     applyLevels(0);
   }
   if (engine.ctx.state === 'suspended') void engine.ctx.resume();
@@ -75,22 +88,20 @@ function impulse(ctx: AudioContext, seconds: number, decay: number): AudioBuffer
 function applyLevels(ramp: number): void {
   if (!engine) return;
   const t = engine.ctx.currentTime;
-  const m = setting === 'all' ? MUSIC_LEVEL * ducked : 0;
-  const s = setting === 'off' ? 0 : SFX_LEVEL;
+  const m = prefs.music ? MUSIC_LEVEL * ducked : 0;
+  const s = prefs.sfx ? SFX_LEVEL : 0;
   engine.music.gain.setTargetAtTime(m, t, ramp || 0.001);
   engine.sfx.gain.setTargetAtTime(s, t, ramp || 0.001);
 }
 
-export function soundSetting(): SoundSetting {
-  return setting;
+export function soundPrefs(): SoundPrefs {
+  return { ...prefs };
 }
 
-/** All sound, then effects only (for players who bring their own music), then silence. */
-export function cycleSound(): SoundSetting {
-  setting = setting === 'all' ? 'sfx' : setting === 'sfx' ? 'off' : 'all';
-  try { localStorage.setItem(SETTING_KEY, setting); } catch { /* private mode: setting lasts this visit */ }
+export function setSoundPrefs(next: SoundPrefs): void {
+  prefs = { ...next };
+  try { localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)); } catch { /* private mode: lasts this visit */ }
   applyLevels(0.05);
-  return setting;
 }
 
 /** Pulls the music down under pause menus and big moments, then lets it back up. */
@@ -104,7 +115,7 @@ export function duckMusic(level: number, ramp = 0.15): void {
 // Each takes an absolute start time, so the sequencer can schedule ahead and effects can play
 // little phrases without setTimeout drift.
 
-export interface Voice { out: AudioNode; wet?: number }
+export interface Voice { out: AudioNode; wet?: number; verb?: AudioNode }
 
 function env(g: GainNode, t: number, vol: number, attack: number, dur: number, release: number): void {
   g.gain.setValueAtTime(0.0001, t);
@@ -118,7 +129,7 @@ function route(e: Engine, node: AudioNode, v: Voice): void {
   if (v.wet) {
     const w = e.ctx.createGain();
     w.gain.value = v.wet;
-    node.connect(w).connect(e.reverb);
+    node.connect(w).connect(v.verb ?? e.sfxVerb);
   }
 }
 

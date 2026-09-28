@@ -3,9 +3,9 @@ import { BOSSES, NIGHTS, type BossId } from './game/config';
 import { BuildUi } from './game/buildui';
 import { Game, type SeasonSave } from './game/game';
 import { Input } from './game/input';
-import { cycleSound, duckMusic, soundSetting, unlockAudio, type SoundSetting } from './game/audio';
+import { duckMusic, setSoundPrefs, soundPrefs, unlockAudio } from './game/audio';
 import { music, type Mood } from './game/music';
-import { board, drawBoard, playerName, rerollName, spinsLeft } from './game/leaderboard';
+import { board, drawBoard, playerName, setPlayerName } from './game/leaderboard';
 import { currentStyle } from './game/style';
 import { Ui } from './game/ui';
 import { World } from './game/world';
@@ -110,15 +110,27 @@ byId('btn-quit').addEventListener('click', () => {
   ui.showTitle(begin);
   showContinue();
 });
-const SOUND_ICON: Record<SoundSetting, [string, string]> = {
-  all: ['🔊', 'Music and sound on'], sfx: ['🔈', 'Sound effects only'], off: ['🔇', 'Sound off'],
-};
-function showSound(s: SoundSetting): void {
-  const btn = byId('btn-mute');
-  [btn.textContent, btn.title] = SOUND_ICON[s];
+// Settings open from a gear that is on screen in every phase, and pause a raid while open.
+let pausedBySettings = false;
+function showSoundPrefs(): void {
+  const p = soundPrefs();
+  byId('set-music').textContent = `🎵 Music: ${p.music ? 'ON' : 'OFF'}`;
+  byId('set-sfx').textContent = `🔊 Sound effects: ${p.sfx ? 'ON' : 'OFF'}`;
+  byId('set-music').classList.toggle('off', !p.music);
+  byId('set-sfx').classList.toggle('off', !p.sfx);
 }
-showSound(soundSetting());
-byId('btn-mute').addEventListener('click', () => showSound(cycleSound()));
+byId('btn-settings').addEventListener('click', (e) => {
+  e.stopPropagation();
+  showSoundPrefs();
+  byId('settings').classList.remove('hidden');
+  if (game.running && !game.paused && !game.choosing) { game.paused = true; pausedBySettings = true; }
+});
+byId('btn-settings-done').addEventListener('click', () => {
+  byId('settings').classList.add('hidden');
+  if (pausedBySettings) { game.paused = false; pausedBySettings = false; }
+});
+byId('set-music').addEventListener('click', () => { const p = soundPrefs(); setSoundPrefs({ ...p, music: !p.music }); showSoundPrefs(); });
+byId('set-sfx').addEventListener('click', () => { const p = soundPrefs(); setSoundPrefs({ ...p, sfx: !p.sfx }); showSoundPrefs(); });
 // Browsers only start audio after a gesture, so the first tap or key anywhere starts the title music.
 for (const ev of ['pointerdown', 'keydown'] as const) window.addEventListener(ev, unlockAudio, { capture: true });
 
@@ -134,6 +146,7 @@ function mood(): Mood {
 }
 
 function updateMusic(): void {
+  if (document.body.dataset.phase !== game.phase) document.body.dataset.phase = game.phase;
   music.set(mood());
   if (game.phase === 'raid') {
     const d = NIGHTS[game.night].duration;
@@ -149,21 +162,27 @@ document.addEventListener('visibilitychange', () => {
 ui.showTitle(begin);
 showContinue();
 
+const nameInput = byId('player-name') as HTMLInputElement;
 function showName(): void {
-  byId('player-name').textContent = playerName();
-  const btn = byId('btn-reroll') as HTMLButtonElement;
-  const left = spinsLeft();
-  btn.textContent = left ? `🎲 ${left}` : '🔒';
-  btn.disabled = !left;
-  btn.title = left ? `Roll a new name (${left} left)` : 'Your name is locked in';
+  nameInput.value = playerName();
 }
+function saveName(): void {
+  if (nameInput.value.trim() === playerName()) return;
+  const why = setPlayerName(nameInput.value);
+  byId('name-msg').textContent = why ?? `Saved! You are ${playerName()}.`;
+  if (why) nameInput.value = playerName();
+  else showBoards();
+}
+byId('name-row').addEventListener('submit', (e) => { e.preventDefault(); saveName(); nameInput.blur(); });
+nameInput.addEventListener('change', saveName);
+// Typing a name must not steer the boss or trigger ROAR and pause.
+for (const ev of ['keydown', 'keyup'] as const) nameInput.addEventListener(ev, (e) => e.stopPropagation());
 function showBoards(): void {
   drawBoard(byId('board'));
   const last = board.last;
   byId('end-score').textContent = last ? `SCORE ${last.score.toLocaleString()}${last.rank ? ` · #${last.rank} ${board.isShared() ? 'in the Hall!' : 'of your seasons'}` : ''}` : '';
   drawBoard(byId('end-board'), last?.score);
 }
-byId('btn-reroll').addEventListener('click', () => { rerollName(); showName(); });
 board.onChange(showBoards);
 showName();
 showBoards();

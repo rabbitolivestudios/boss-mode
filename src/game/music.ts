@@ -168,7 +168,7 @@ class Music {
     bus.gain.linearRampToValueAtTime(1, t + 0.6);
     bus.connect(e.music);
     this.bus = bus;
-    this.voices = { drums: { out: bus }, bass: { out: bus }, pad: { out: bus, wet: 0.5 }, lead: { out: bus, wet: 0.3 } };
+    this.voices = { drums: { out: bus }, bass: { out: bus }, pad: { out: bus, wet: 0.5, verb: e.musicVerb }, lead: { out: bus, wet: 0.3, verb: e.musicVerb } };
     this.step = 0;
     this.next = t + 0.08;
     if (!this.timer) this.timer = window.setInterval(() => this.pump(), 25);
