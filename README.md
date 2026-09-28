@@ -23,12 +23,26 @@ npm run dev        # http://localhost:5173 (also on your LAN, so phones can join
 ## Build
 
 ```bash
-npm run typecheck
-npm run build          # static site in dist/, can be hosted anywhere (GitHub Pages, Netlify, Vercel)
-npm run build:single   # also writes dist/boss-mode.html, one self-contained file
+npm run typecheck      # game and worker
+npm test               # analytics model tests
+npm run build          # site in dist/: landing page (/), game (/play), dashboard (/analytics)
+npm run build:single   # the game alone as one self-contained file, dist-single/boss-mode.html
 ```
 
-Playtest the late waves quickly with `?speed=4` in the URL.
+Playtest the late waves quickly with `?speed=4` in the URL. Add `?test=1` once to mark a browser's plays as test traffic (kept apart in the dashboard); `?test=0` clears it.
+
+## Site, analytics and leaderboard
+
+The site runs on Cloudflare Workers, the same way as Footy Draft: `worker/` serves the pages, takes anonymous gameplay events, keeps the shared Hall of Bosses, and serves a password-protected dashboard at `/analytics`, all backed by one SQLite Durable Object (`wrangler.jsonc`). What may be collected is fixed by `src/analytics/contract.ts`: enums and bounded numbers only, never names or free text; data older than 90 days is deleted.
+
+```bash
+npm run worker:dev     # after npm run build; http://localhost:8787 (dashboard password from .dev.vars)
+npx wrangler login     # once, or set CLOUDFLARE_API_TOKEN (Workers edit permission)
+npm run deploy         # builds and publishes
+npm run set-password   # sets or changes the /analytics password; nothing is written to a file
+```
+
+Landing art is rendered from the game's own drawing code: `node scripts/render-landing-art.mjs` (see the script header).
 
 ## Art
 
