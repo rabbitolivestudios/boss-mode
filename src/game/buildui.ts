@@ -52,8 +52,8 @@ export class BuildUi {
         const dx = e.clientX - this.drag.x, dy = e.clientY - this.drag.y;
         if (Math.hypot(dx, dy) > 10) this.drag.moved = true;
         if (this.drag.moved) {
-          // Roughly one world unit per 18px at the phone build zoom; clamp to the castle.
-          const lim = CASTLE.half * CASTLE.cell * 0.6;
+          // Roughly one world unit per 18px at the phone build zoom; clamp so every buildable tile can be reached.
+          const lim = CASTLE.buildRadius;
           this.world.focus.x = Math.max(-lim, Math.min(lim, this.drag.fx - dx / 18));
           this.world.focus.z = Math.max(-lim, Math.min(lim, this.drag.fz - dy / 18));
           this.game.hover = null;
@@ -74,6 +74,7 @@ export class BuildUi {
       this.refresh();
     });
     $('btn-challenger').addEventListener('click', () => $('challenger').classList.add('hidden'));
+    window.addEventListener('resize', () => requestAnimationFrame(() => this.measure()));
   }
 
   private cellAt(px: number, py: number): [number, number] | null {
@@ -101,12 +102,21 @@ export class BuildUi {
     };
     for (const id of Object.keys(BUILDINGS) as BuildingId[]) add(id, BUILDINGS[id].icon, BUILDINGS[id].name, BUILDINGS[id].cost);
     add('sell', '💸', 'Sell');
-    this.say(night === 0 ? 'Build your castle! Tap a tile to place. Careful: gold you spend leaves the vault.' : 'Spend gold on defences, or keep it safe in the vault.');
+    const drag = this.world.compact ? ' Drag to move the map.' : '';
+    this.say(night === 0 ? `Build your castle! Gold you spend leaves the vault, and an empty vault loses the season.${drag}` : `Spend gold on defences, or keep it in the vault: if thieves empty it, you lose!${drag}`);
     this.refresh();
+    this.measure();
+  }
+
+  /** Tells the camera how much of the screen the build bar covers, so the castle is framed above it. */
+  measure(): void {
+    const bar = $('build-bottom');
+    this.world.bottomInset = $('buildbar').classList.contains('hidden') ? 0 : window.innerHeight - bar.getBoundingClientRect().top + 8;
   }
 
   hide(): void {
     $('buildbar').classList.add('hidden');
+    this.world.bottomInset = 0;
     this.game.hover = null;
   }
 
@@ -121,6 +131,7 @@ export class BuildUi {
     const rb = $('btn-repair') as HTMLButtonElement;
     rb.hidden = repair <= 0;
     rb.textContent = `🔧 Repair all: 💰${repair}`;
+    this.measure();
     document.querySelectorAll<HTMLButtonElement>('#tools .tool').forEach((b) => {
       const id = b.dataset.tool as Tool;
       b.classList.toggle('on', id === this.tool);
@@ -135,6 +146,8 @@ export class BuildUi {
     el.classList.remove('flash');
     void el.offsetWidth;
     el.classList.add('flash');
+    // On small screens the tip covers the castle, so it steps aside after a few seconds.
+    if (this.world.compact) this.msgTimer = window.setTimeout(() => { el.textContent = ''; }, 6000);
   }
 
   challenger(kind: HeroKind, text: string): void {
@@ -158,7 +171,7 @@ export class BuildUi {
       <div><b>${r.damage}</b>damage you took</div>
       <div><b>${Math.round(r.buildingShare * 100)}%</b>kills by buildings</div>`;
     $('dawn-adapt').textContent = r.adapting ? `💬 Heroes' chat: "${r.adapting}"` : '';
-    $('dawn-hint').textContent = r.stars === 3 ? 'Perfect night: not a single coin escaped!' : 'Stars come from keeping gold: stop thieves before they reach a gate.';
+    $('dawn-hint').textContent = r.stars === 3 ? 'Perfect night: not a single coin escaped!' : 'Stars come from keeping gold: stop thieves before they reach your vault.';
     const btn = $('btn-next');
     btn.textContent = r.night + 1 === NIGHTS.length - 1 ? 'Prepare for the final raid ▶' : 'Build ▶';
     btn.onclick = () => { $('dawn').classList.add('hidden'); onNext(); };

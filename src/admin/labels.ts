@@ -4,7 +4,8 @@ export const BOSS: Record<string, string> = { dragon: '🐉 Blaze', slime: '🟢
 export const TIER: Record<string, string> = { chill: 'Chill', normal: 'Normal', heroic: 'Heroic', legendary: 'Legendary' };
 export const PICK: Record<string, string> = {
   'weapon:stomp': 'Ground Pound', 'weapon:fireball': 'Fireball', 'weapon:bats': 'Bat Swarm', 'weapon:lava': 'Lava Pools', 'weapon:lightning': 'Lightning',
-  'weapon:minions': 'Summon Goblins', 'weapon:spring': 'Spring Trap', 'weapon:saw': 'Saw Blades', 'passive:might': 'Might', 'passive:haste': 'Haste',
+  'weapon:minions': 'Summon Goblins', 'weapon:spring': 'Spring Trap', 'weapon:saw': 'Saw Blades',
+  'weapon:frost': 'Frost Nova', 'weapon:tornado': 'Tornado', 'weapon:boomerang': 'Boomerang', 'passive:might': 'Might', 'passive:haste': 'Haste',
   'passive:boots': 'Boots', 'passive:heart': 'Big Heart', 'passive:magnet': 'Magnet', 'passive:regen': 'Regen', 'limit:might': 'Limit: Power',
   'limit:haste': 'Limit: Speed Up', 'limit:hp': 'Limit: Toughness', 'limit:speed': 'Limit: Speed', snack: 'Snack (heal)',
 };

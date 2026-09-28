@@ -65,6 +65,19 @@ export const sfx = {
   fire: () => gate('fire', 90) && play((v, _w, t) => {
     hiss(v, t, { vol: 0.1, dur: 0.12, filter: 'bandpass', freq: 900, freqEnd: 400, q: 1 });
   }),
+  /** Frost Nova: a glassy shimmer over a cold hiss. */
+  freeze: () => gate('freeze', 150) && play((v, w, t) => {
+    [96, 91, 88, 84].forEach((n, i) => note(w, t + i * 0.035, midi(n), { type: 'sine', vol: 0.06, dur: 0.02, release: 0.35 }));
+    hiss(v, t, { vol: 0.14, dur: 0.35, filter: 'highpass', freq: 5000, freqEnd: 2500 });
+  }),
+  /** Tornado: a rising, swirling rush of wind. */
+  whirl: () => gate('whirl', 250) && play((_v, w, t) => {
+    hiss(w, t, { vol: 0.22, dur: 0.9, attack: 0.3, filter: 'bandpass', freq: 300, freqEnd: 1800, q: 3 });
+  }),
+  /** Boomerang: a quick swish past the ear. */
+  swish: () => gate('swish', 120) && play((v, _w, t) => {
+    hiss(v, t, { vol: 0.12, dur: 0.18, attack: 0.05, filter: 'bandpass', freq: 1200, freqEnd: 3200, q: 2 });
+  }),
   level: () => play((_v, w, t) => {
     [72, 76, 79, 84, 88].forEach((n, i) => note(w, t + i * 0.06, midi(n), { type: 'triangle', vol: 0.13, dur: 0.04, release: 0.4 }));
     hiss(w, t + 0.3, { vol: 0.05, dur: 0.4, filter: 'highpass', freq: 9000 });

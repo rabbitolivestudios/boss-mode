@@ -168,11 +168,23 @@ body.style-diorama::after { content: ''; position: fixed; inset: 0; pointer-even
 .tool:focus-visible, #btn-raid:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
 #dawn-stars { font-size: 48px; letter-spacing: 6px; text-shadow: 0 4px 0 #000; }
 #btn-continue[hidden], #btn-retry[hidden] { display: none; }
-@media (max-width: 600px) {
-  .tool { width: 62px; }
-  .tool .ti { font-size: 22px; }
-  .tool .tn { font-size: 11px; }
+/* Phones: one compact row of tools and a smaller start button, so most of the screen is castle. */
+@media (max-width: 600px), (max-height: 500px) {
+  #tools { flex-wrap: nowrap; gap: 5px; }
+  .tool { width: 56px; padding: 4px 2px; border-radius: 12px; box-shadow: 0 3px 0 #000; }
+  .tool .ti { font-size: 20px; }
+  .tool .tn { font-size: 10px; line-height: 1.1; }
+  .tool .tc { font-size: 11px; }
+  .tool.on { transform: translateY(-2px); }
+  #build-bottom { gap: 6px; }
+  #btn-raid { font-size: 18px; padding: 8px 22px; border-radius: 14px; box-shadow: 0 4px 0 #000; }
   #build-top { font-size: 22px; }
+  #build-msg { font-size: 14px; padding: 3px 10px; }
+}
+/* Phones on their side: tools and start button share one row. */
+@media (max-height: 500px) {
+  #build-bottom { flex-direction: row; flex-wrap: wrap; justify-content: center; align-items: flex-end; }
+  #build-top { font-size: 18px; }
 }
 
 .tag.breach { font-size: 14px; background: #ff3d5a; color: #fff; box-shadow: 0 3px 0 #8a0f24; }
@@ -215,4 +227,26 @@ body[data-phase="build"] #build-top { padding-right: 52px; }
 #settings .toggle.off { background: #5a4a7a; color: #fff; }
 @media (max-width: 600px) {
   body[data-phase="raid"] #btn-settings { top: calc(74px + env(safe-area-inset-top)); }
+}
+
+/* Screens centre their content without clipping the top when it is taller than the screen: they scroll instead. */
+.screen { justify-content: flex-start; }
+.screen > :first-child { margin-top: auto; }
+.screen > :last-child { margin-bottom: auto; }
+
+/* Phones on their side: everything shrinks so a screen fits in about one scroll. */
+@media (max-height: 500px) {
+  .screen { gap: 8px; padding: 10px 16px; }
+  h1 { font-size: 44px; text-shadow: 0 5px 0 #b8330b, 0 9px 0 #000; }
+  h2 { font-size: 30px; }
+  .boss-card { width: 130px; padding: 8px 6px; }
+  .boss-card .portrait { width: 80px; height: 80px; margin: -6px auto -4px; }
+  .boss-card .nm { font-size: 19px; }
+  #end-stats, .stats { grid-template-columns: repeat(3, minmax(110px, 1fr)); gap: 6px; }
+  #end-stats div, .stats div { padding: 4px 10px; }
+  #end-stats b, .stats b { font-size: 20px; }
+  #dawn-stars { font-size: 30px; }
+  .card { min-height: 0; padding: 8px; }
+  .card .ic { font-size: 32px; }
+  .big { font-size: 20px; padding: 8px 24px; }
 }

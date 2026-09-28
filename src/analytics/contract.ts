@@ -9,7 +9,7 @@ export const BOSS_IDS = ['dragon', 'slime', 'bonelord'] as const;
 export const TIER_IDS = ['chill', 'normal', 'heroic', 'legendary'] as const;
 export const BUILDING_IDS = ['wall', 'spikes', 'pad', 'saw', 'tower'] as const;
 export const PICK_IDS = [
-  'weapon:stomp', 'weapon:fireball', 'weapon:bats', 'weapon:lava', 'weapon:lightning', 'weapon:minions', 'weapon:spring', 'weapon:saw',
+  'weapon:stomp', 'weapon:fireball', 'weapon:bats', 'weapon:lava', 'weapon:lightning', 'weapon:minions', 'weapon:spring', 'weapon:saw', 'weapon:frost', 'weapon:tornado', 'weapon:boomerang',
   'passive:might', 'passive:haste', 'passive:boots', 'passive:heart', 'passive:magnet', 'passive:regen',
   'limit:might', 'limit:haste', 'limit:hp', 'limit:speed', 'snack',
 ] as const;

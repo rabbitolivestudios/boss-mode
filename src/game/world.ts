@@ -49,6 +49,11 @@ export class World {
   overview = false;
   /** Where the build camera looks; phones pan it by dragging, since the whole castle will not fit. */
   focus = { x: 0, z: 0 };
+  /** Pixels at the bottom of the screen covered by the build bar; the build view is framed above it. */
+  bottomInset = 0;
+  /** Small screens (phones either way round) get a closer build view that pans, instead of the whole castle. */
+  compact = false;
+  private appliedInset = -1;
 
   constructor(canvas: HTMLCanvasElement, readonly style: StyleId) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: window.devicePixelRatio < 2, powerPreference: 'high-performance' });
@@ -246,6 +251,8 @@ export class World {
     this.camera.aspect = w / h;
     // Portrait phones see less width, so pull the camera back to keep the crowd visible.
     this.zoom = w < h ? 1.45 : 1;
+    this.compact = w < h || h < 600;
+    this.appliedInset = -1;
     this.camera.updateProjectionMatrix();
   }
 
@@ -263,13 +270,23 @@ export class World {
     if (this.overview) {
       // Landscape screens see the whole castle; portrait phones get a closer view they can pan.
       const portrait = this.zoom > 1;
-      const fx = portrait ? this.focus.x : 0, fz = portrait ? this.focus.z : 0;
+      const fx = this.compact ? this.focus.x : 0, fz = this.compact ? this.focus.z : 0;
       px = fx; pz = fz;
       this.camera.position.set(fx, portrait ? 48 : 38, fz + (portrait ? 34 : 30));
       this.camera.lookAt(fx, 0, fz + 1);
     } else {
       this.camera.position.set(px + sx, this.rig.height * d, pz + this.rig.back * d + sz);
       this.camera.lookAt(px + sx * 0.5, 0, pz - 1);
+    }
+
+    // Frame the build view in the part of the screen the build bar leaves free: the centre of the
+    // picture moves up by the covered height, so no tile is ever stuck under the buttons.
+    const inset = this.overview ? Math.round(this.bottomInset) : 0;
+    if (inset !== this.appliedInset) {
+      this.appliedInset = inset;
+      const w = window.innerWidth, h = window.innerHeight;
+      if (inset > 0) this.camera.setViewOffset(w, h + inset, 0, inset, w, h);
+      else this.camera.clearViewOffset();
     }
 
     this.ground.position.set(px, 0, pz);

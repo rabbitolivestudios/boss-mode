@@ -65,6 +65,8 @@ export const TREASURE = {
   /** Seconds before spilled coins fly home to the vault. */
   returnDelay: 0.9,
   vaultRadius: 2.2,
+  /** At or below this much gold during a raid, a warning says an empty vault loses the season. */
+  lowWarning: 10,
   /** Heist crews: packs of rogues that enter at the gate farthest from the boss. Size = base + t / growth. */
   heistFirst: 70,
   heistEvery: 90,
@@ -82,6 +84,12 @@ export interface Difficulty {
   spawn: number;
   damage: number;
   loot: number;
+  /**
+   * Chance a thief pockets one coin for good when it reaches the vault, before filling its sack.
+   * Hitting a thief knocks the sack loose, so without this nearly all stolen gold came home: a Heroic
+   * bot that spent down to 1 coin saw up to 58 grabs a night and lost 0 gold. Chill stays at 0 for kids.
+   */
+  pocket: number;
 }
 
 /**
@@ -90,10 +98,10 @@ export interface Difficulty {
  * Chill is the original Normal, Normal is the original Heroic.
  */
 export const DIFFICULTIES: Difficulty[] = [
-  { id: 'chill', name: 'Chill', hp: 1, spawn: 1, damage: 1, loot: 1 },
-  { id: 'normal', name: 'Normal', hp: 1.5, spawn: 1.25, damage: 1.2, loot: 1.3 },
-  { id: 'heroic', name: 'Heroic', hp: 2.3, spawn: 1.5, damage: 1.45, loot: 1.6 },
-  { id: 'legendary', name: 'Legendary', hp: 3.3, spawn: 1.8, damage: 1.7, loot: 2 },
+  { id: 'chill', name: 'Chill', hp: 1, spawn: 1, damage: 1, loot: 1, pocket: 0 },
+  { id: 'normal', name: 'Normal', hp: 1.5, spawn: 1.25, damage: 1.2, loot: 1.3, pocket: 0.25 },
+  { id: 'heroic', name: 'Heroic', hp: 2.5, spawn: 1.55, damage: 1.5, loot: 1.6, pocket: 0.5 },
+  { id: 'legendary', name: 'Legendary', hp: 3.3, spawn: 1.8, damage: 1.7, loot: 2, pocket: 0.75 },
 ];
 
 /** Tiers open without winning anything, and the tier picked by default. */
@@ -247,7 +255,7 @@ export const CASTLE = {
   sawDamage: 12,
 };
 
-export type WeaponId = 'stomp' | 'fireball' | 'bats' | 'lava' | 'lightning' | 'minions' | 'spring' | 'saw';
+export type WeaponId = 'stomp' | 'fireball' | 'bats' | 'lava' | 'lightning' | 'minions' | 'spring' | 'saw' | 'frost' | 'tornado' | 'boomerang';
 export type PassiveId = 'might' | 'haste' | 'boots' | 'heart' | 'magnet' | 'regen';
 
 export interface WeaponDef {
@@ -285,7 +293,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
   },
   lightning: {
     name: 'Storm Call', icon: '⚡',
-    blurb: ['Lightning zaps random heroes.', '+1 strike', '+1 strike', '+1 strike, more damage', '+2 strikes'],
+    blurb: ['Lightning zaps random heroes.', '+1 strike', '+1 strike, bolts jump to a 2nd hero', '+1 strike, more damage', '+2 strikes, bolts jump twice'],
     cd: [2.0, 1.8, 1.6, 1.5, 1.2], dmg: [18, 22, 26, 34, 44], n: [1, 2, 3, 4, 6],
   },
   minions: {
@@ -303,7 +311,34 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     blurb: ['Drop a spinning saw. Lure heroes into it.', 'Sharper saw', '+1 saw', 'Sharper saw', '+1 saw, bigger blades'],
     cd: [5.0, 4.6, 4.2, 3.8, 3.2], dmg: [7, 10, 12, 16, 20], n: [1, 1, 2, 2, 3],
   },
+  frost: {
+    name: 'Frost Nova', icon: '❄️',
+    blurb: ['Blast of ice freezes nearby heroes solid. Frozen thieves cannot run!', 'Bigger blast', 'Colder: longer freeze', 'Bigger AND colder', 'ICE AGE'],
+    cd: [4.6, 4.3, 3.9, 3.5, 3.0], dmg: [6, 8, 10, 13, 18], n: [4.5, 5.2, 5.6, 6.4, 7.6],
+  },
+  tornado: {
+    name: 'Tornado', icon: '🌪️',
+    blurb: ['Summon a tornado that sucks heroes in and flings them.', 'Stronger winds', '+1 tornado', 'Stronger winds', '+1 tornado, MEGA STORM'],
+    cd: [6.5, 6.0, 5.5, 5.0, 4.2], dmg: [7, 9, 11, 14, 18], n: [1, 1, 2, 2, 3],
+  },
+  boomerang: {
+    name: 'Bone Boomerang', icon: '🪃',
+    blurb: ['Throw a boomerang that hits on the way out AND back.', 'Sharper bone', '+1 boomerang', 'Sharper bone', '+2 boomerangs'],
+    cd: [1.9, 1.8, 1.6, 1.5, 1.3], dmg: [9, 12, 14, 18, 22], n: [1, 1, 2, 2, 4],
+  },
 };
+
+/** Frost Nova: seconds frozen by level, bonus damage from the boss on frozen heroes, and champions are only slowed. */
+export const FROST = { freeze: [1.6, 1.8, 2.2, 2.4, 3.0], shatter: 1.5, champSlow: 1.5 };
+
+/** Tornado: how long one lasts, how fast it drifts, its pull radius and strength, and how hard it flings. */
+export const TORNADO = { life: 4.5, speed: 3.2, pullRadius: 4.2, pull: 9, coreRadius: 1.4, hitEvery: 0.45, fling: 11 };
+
+/** Boomerang: outward speed, seconds before it turns back, and return speed. */
+export const BOOMERANG = { speed: 15, out: 0.55, back: 18, life: 3 };
+
+/** Storm Call chains from its target to nearby heroes at these levels, within this range, for this share of damage. */
+export const CHAIN = { fromLevel: 3, extraAtMax: 1, range: 5, share: 0.6 };
 
 export const PHYSICS = {
   /** Knockback speed above which a hero leaves the ground and becomes a projectile. */

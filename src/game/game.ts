@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import {
-  BOSSES, BUILDINGS, CASTLE, CHAMPIONS, COUNTERS, DEFAULT_TIER, SABOTAGE, DIFFICULTIES, HEROES, LIMIT_BREAKS, MAX_LEVEL, MINION, NIGHT_TOUGHNESS, NIGHTS, PASSIVES, PHYSICS, RUN, STARS, TRAPS, TREASURE, WAVES, WEAPONS, XP, xpToNext,
+  BOOMERANG, BOSSES, BUILDINGS, CASTLE, CHAIN, FROST, TORNADO, CHAMPIONS, COUNTERS, DEFAULT_TIER, SABOTAGE, DIFFICULTIES, HEROES, LIMIT_BREAKS, MAX_LEVEL, MINION, NIGHT_TOUGHNESS, NIGHTS, PASSIVES, PHYSICS, RUN, STARS, TRAPS, TREASURE, WAVES, WEAPONS, XP, xpToNext,
   type BossId, type BuildingId, type Difficulty, type HeroDef, type HeroKind, type PassiveId, type WeaponId,
 } from './config';
 import { Fx } from './fx';
@@ -12,6 +12,7 @@ import { CHAMPION_LINES, Chatter, LINES, pick } from './chatter';
 import { Castle, type Building } from './castle';
 import { castleAtlas, castleCell } from './castleart';
 import { lootAtlas, lootCell } from './lootart';
+import { spellAtlas, spellCell, type SpellId } from './spellart';
 import { SpriteBatch } from './paper';
 import { BossRig, PuppetRig, type Action } from './puppet';
 import { sfx } from './sfx';
@@ -33,6 +34,8 @@ export interface Hero {
   goal: 'boss' | 'loot' | 'sabotage'; carry: number; grabT: number; slowT: number;
   /** Counter-hero state: shield still up, saboteur target and work progress, and whether the boss caused its launch. */
   shield: boolean; target: Building | null; workT: number; bossLaunch: boolean; lastHit: 'boss' | BuildingId;
+  /** Seconds left frozen by Frost Nova: no walking, stealing or fighting, and the boss hits harder. */
+  iceT: number;
 }
 /** Gold knocked out of a thief's sack: it bounces, then flies home to the vault. */
 interface Spill { x: number; z: number; y: number; vx: number; vz: number; vy: number; t: number; sx: number; sz: number }
@@ -48,6 +51,10 @@ interface Trap { kind: 'spring' | 'saw'; x: number; z: number; life: number; bou
 interface Shot { x: number; z: number; vx: number; vz: number; life: number; dmg: number; pierce: number; hit: Set<Hero> | null; enemy: boolean; src?: BuildingId }
 interface Gem { x: number; z: number; value: number; tier: number; pulled: boolean; spin: number; snack?: boolean; vacuum?: boolean }
 interface Lava { x: number; z: number; r: number; life: number; tick: number }
+/** A spell piece drawn as a paper cutout for a moment: bolts, storm clouds, explosions, snowflakes. */
+interface Flash { cell: SpellId; x: number; y: number; z: number; vx: number; vz: number; w: number; h: number; life: number; max: number; roll: number; face: number }
+interface Twister { x: number; z: number; vx: number; vz: number; life: number; tick: number; dmg: number; seed: number }
+interface Boomerang { x: number; z: number; vx: number; vz: number; t: number; back: boolean; dmg: number; hit: Set<Hero> }
 interface Minion { x: number; z: number; hp: number; life: number; hitCd: number; face: number; phase: number; turn?: number; actT?: number; seed?: number }
 
 export type Choice =
@@ -150,7 +157,11 @@ export class Game {
   private surpriseDone = false;
   private seasonSeed = 1;
   private spills: Spill[] = [];
+  private flashes: Flash[] = [];
+  private twisters: Twister[] = [];
+  private booms: Boomerang[] = [];
   private warnedThief = false;
+  private warnedLow = false;
   private nextHeist: number = TREASURE.heistFirst;
   // Season state
   readonly castle: Castle;
@@ -179,7 +190,7 @@ export class Game {
   // Meshes
   private hBody; private hHead; private hGear; private hLegL; private hLegR; private shadows;
   private mFire; private mArrow; private mGem; private mBat; private mLava; private mGob; private mGobHead; private mSpring; private mSpringTop; private mSaw; private mSnack; private mVacuum; private chestMesh: THREE.Group;
-  private paper: { heroes: SpriteBatch; rig: PuppetRig; boss: SpriteBatch; bossRig: BossRig; loot: SpriteBatch; castle: SpriteBatch; corpses: Corpse[] } | null = null;
+  private paper: { heroes: SpriteBatch; rig: PuppetRig; boss: SpriteBatch; bossRig: BossRig; loot: SpriteBatch; castle: SpriteBatch; spells: SpriteBatch; corpses: Corpse[] } | null = null;
   private gridMesh: THREE.InstancedMesh;
   /** Cell under the pointer during the build phase, and whether the current tool may go there. */
   hover: { cx: number; cz: number; ok: boolean } | null = null;
@@ -267,9 +278,12 @@ export class Game {
         bossRig: new BossRig(bossBatch, ba),
         loot: (() => { const la = lootAtlas(); return new SpriteBatch(la.tex, la.cols, la.rows, RUN.maxHeroes + 260, world.standeeTilt); })(),
         castle: (() => { const ca = castleAtlas(); return new SpriteBatch(ca.tex, ca.cols, ca.rows, CASTLE.half * CASTLE.half * 4, world.standeeTilt); })(),
+        spells: (() => { const sa = spellAtlas(); return new SpriteBatch(sa.tex, sa.cols, sa.rows, MAX_SHOTS + RUN.maxHeroes + 200, world.standeeTilt); })(),
         corpses: [],
       };
-      scene.add(this.paper.castle.mesh, this.paper.heroes.mesh, this.paper.boss.mesh, this.paper.loot.mesh);
+      scene.add(this.paper.castle.mesh, this.paper.heroes.mesh, this.paper.boss.mesh, this.paper.loot.mesh, this.paper.spells.mesh);
+      // Fireballs are drawn as paper comets instead.
+      this.mFire.visible = false;
       for (const m of [this.hBody, this.hHead, this.hGear, this.hLegL, this.hLegR, this.mGob, this.mGobHead]) m.visible = false;
     }
     if (world.shadows) {
@@ -408,7 +422,7 @@ export class Game {
     for (const h of this.heroes) this.dropExtras(h);
     this.heroes = []; this.champions = []; this.shots = []; this.gems = []; this.lava = []; this.minions = [];
     this.traps = this.traps.filter(() => false);
-    this.spills = []; this.chest = null; this.chestMesh.visible = false;
+    this.spills = []; this.flashes = []; this.twisters = []; this.booms = []; this.chest = null; this.chestMesh.visible = false;
     if (this.paper) this.paper.corpses = [];
     this.combo = 0; this.comboT = 0; this.frenzy = 0; this.hurt = 0; this.ouch = 0;
     this.fx.clear();
@@ -437,7 +451,7 @@ export class Game {
     this.phase = 'raid';
     this.running = true;
     this.hover = null;
-    this.nightTime = 0; this.nightKills = 0; this.nightStolen = 0; this.nightRecovered = 0;
+    this.nightTime = 0; this.nightKills = 0; this.nightStolen = 0; this.nightRecovered = 0; this.warnedLow = false;
     this.nightDamage = 0; this.nightBuildingKills.clear();
     this.nightStartGold = this.treasure;
     this.trackBuild();
@@ -718,6 +732,11 @@ export class Game {
     this.heroes = this.heroes.filter((h) => h.alive);
     if (this.running && this.nightTime >= NIGHTS[this.night].duration) { this.dawn(); return; }
 
+    if (this.running && !this.warnedLow && this.treasure <= TREASURE.lowWarning) {
+      this.warnedLow = true;
+      this.hooks.banner('VAULT ALMOST EMPTY!', 'If thieves take the last coin, you lose!');
+      sfx.siren();
+    }
     if (this.hp <= 0) this.finish(false, 'hp');
     else if (this.treasure <= 0 && this.spills.length === 0 && !this.heroes.some((h) => h.carry > 0)) this.finish(false, 'vault');
     else if (this.pendingLevels > 0 && !this.choosing) {
@@ -899,7 +918,7 @@ export class Game {
       variant: Math.random() < 0.5 ? 0 : 1, champ: 0, turn: x < this.x ? 1 : -1,
       action: kind === 'archer' ? 'shoot' : kind === 'healer' ? 'raise' : 'swing', actT: 0, actDur: 0.4, hitT: 0,
       goal: def.saboteur ? 'sabotage' : kind === 'rogue' ? 'loot' : kind !== 'champion' && !def.flying && !def.shield && Math.random() < this.lootShare() ? 'loot' : 'boss',
-      carry: 0, grabT: 0, slowT: 0,
+      carry: 0, grabT: 0, slowT: 0, iceT: 0,
       shield: def.shield === true, target: null, workT: 0, bossLaunch: false, lastHit: 'boss',
     };
     // A few regular heroes wear visible gamer tags so the crowd reads as "other players".
@@ -938,6 +957,15 @@ export class Game {
       h.actT = Math.max(0, h.actT - dt);
       h.hitT = Math.max(0, h.hitT - dt);
       if (h.air) { this.fly(h, dt); continue; }
+      if (h.iceT > 0) {
+        // Frozen solid: no walking, stealing or fighting, but a hit still slides the ice block.
+        h.iceT -= dt;
+        const px = h.x, pz = h.z;
+        h.x += h.kx * dt; h.z += h.kz * dt;
+        [h.x, h.z] = this.castle.collide(h.x, h.z, px, pz);
+        h.kx *= decay; h.kz *= decay;
+        continue;
+      }
       if (h.goal === 'loot' && this.heist(h, dt, decay)) continue;
       if (h.goal === 'sabotage' && this.sabotage(h, dt, decay)) continue;
       let dx = this.x - h.x, dz = this.z - h.z;
@@ -1051,10 +1079,18 @@ export class Game {
       if (h.actT <= 0) this.act(h, 'raise', 0.4);
       if (h.grabT >= TREASURE.grabTime) {
         h.grabT = 0;
-        h.carry = Math.min(TREASURE.carry, this.treasure);
+        // Reaching the vault costs a coin for good; only what goes in the sack can be knocked loose.
+        if (Math.random() < this.difficulty.pocket) {
+          this.treasure -= 1; this.stolen += 1; this.nightStolen += 1;
+          this.fx.number(0, 3.4, 0, -1, true, '#ff5a5a');
+        }
+        h.carry = Math.min(TREASURE.carry, Math.max(0, this.treasure));
         this.treasure -= h.carry;
         sfx.steal();
-        if (!this.warnedThief) { this.warnedThief = true; this.hooks.banner('THIEF!', 'Hit thieves to make them drop your gold'); }
+        if (!this.warnedThief) {
+          this.warnedThief = true;
+          this.hooks.banner('THIEF!', this.difficulty.pocket > 0 ? 'Thieves pocket a coin at the vault. Stop them before they get there!' : 'Hit thieves to make them drop your gold');
+        }
         if (Math.random() < 0.3) this.chatter.say(h, pick(LINES.grab), 2.4 * h.def.scale);
       }
     } else if (h.carry > 0 && d < TREASURE.escapeDistance) {
@@ -1265,7 +1301,7 @@ export class Game {
       sfx.stomp();
     }
     const crit = src === 'boss' && Math.random() < 0.1;
-    const dmg = src === 'boss' ? base * this.dmgMul * (this.frenzy > 0 ? 1.5 : 1) * (crit ? 2 : 1) : base;
+    const dmg = src === 'boss' ? base * this.dmgMul * (this.frenzy > 0 ? 1.5 : 1) * (crit ? 2 : 1) * (h.iceT > 0 ? FROST.shatter : 1) : base;
     h.lastHit = src;
     h.hp -= dmg;
     h.flash = 0.1;
@@ -1407,6 +1443,9 @@ export class Game {
     this.updateBats(dt);
     this.updateLava(dt);
     this.updateTraps(dt);
+    this.updateTwisters(dt);
+    this.updateBoomerangs(dt);
+    this.updateFlashes(dt);
   }
 
   private fire(id: WeaponId, dmg: number, n: number, level: number): boolean {
@@ -1443,12 +1482,27 @@ export class Game {
         const pool: Hero[] = [];
         this.near(this.x, this.z, 16, (h) => { pool.push(h); });
         if (!pool.length) return false;
+        const chains = level >= CHAIN.fromLevel ? 1 + (level >= MAX_LEVEL ? CHAIN.extraAtMax : 0) : 0;
         for (let k = 0; k < n && pool.length; k++) {
           const t = pool.splice(Math.floor(Math.random() * pool.length), 1)[0];
           const tx = t.x, tz = t.z;
-          this.fx.bolt(tx, tz);
+          this.strike(tx, tz, true);
           this.damage(t, dmg);
           this.near(tx, tz, 1.4, (h) => { if (h !== t) this.damage(h, dmg * 0.5); });
+          // The bolt jumps on to the nearest heroes it has not hit yet.
+          let from = t;
+          const hit = new Set<Hero>([t]);
+          for (let c = 0; c < chains; c++) {
+            let next: Hero | null = null, best = Infinity;
+            this.near(from.x, from.z, CHAIN.range, (h, _dx, _dz, d) => { if (!hit.has(h) && d < best) { best = d; next = h; } });
+            const to = next as Hero | null;
+            if (!to) break;
+            hit.add(to);
+            this.arc(from.x, from.z, to.x, to.z);
+            this.strike(to.x, to.z, false);
+            this.damage(to, dmg * CHAIN.share);
+            from = to;
+          }
         }
         sfx.zap();
         return true;
@@ -1477,8 +1531,144 @@ export class Game {
         this.fx.ring(bx, bz, 1.4, id === 'spring' ? 0xff3d5a : 0xd8dde6, 0.3);
         return true;
       }
+      case 'frost': {
+        const r = n + this.radius * 0.5;
+        this.fx.ring(this.x, this.z, r, 0x9fe6ff, 0.45);
+        this.fx.burst(this.x, 0.6, this.z, 0xcff4ff, 16, 7, 0.2);
+        for (let k = 0; k < 8; k++) {
+          const a = (k / 8) * Math.PI * 2 + Math.random() * 0.3;
+          this.flash('flake', this.x + Math.cos(a) * 1.5, 1 + Math.random(), this.z + Math.sin(a) * 1.5, 0.9, 0.5, Math.cos(a) * r * 1.8, Math.sin(a) * r * 1.8);
+        }
+        sfx.freeze();
+        const freeze = FROST.freeze[level - 1];
+        this.near(this.x, this.z, r, (h) => {
+          this.damage(h, dmg);
+          if (!h.alive || h.air) return;
+          if (h.kind === 'champion') h.slowT = Math.max(h.slowT, FROST.champSlow);
+          else { h.iceT = freeze; h.dashT = 0; h.grabT = 0; }
+        });
+        return true;
+      }
+      case 'tornado': {
+        const aim = this.nearest(1, 18)[0];
+        const base = aim ? Math.atan2(aim.z - this.z, aim.x - this.x) : Math.random() * Math.PI * 2;
+        for (let k = 0; k < n; k++) {
+          const a = base + (k - (n - 1) / 2) * 1.2;
+          this.twisters.push({ x: this.x + Math.cos(a) * 2, z: this.z + Math.sin(a) * 2, vx: Math.cos(a) * TORNADO.speed, vz: Math.sin(a) * TORNADO.speed, life: TORNADO.life, tick: 0, dmg, seed: Math.random() * 6 });
+        }
+        sfx.whirl();
+        return true;
+      }
+      case 'boomerang': {
+        const targets = this.nearest(n, 14);
+        if (!targets.length) return false;
+        for (let k = 0; k < n; k++) {
+          const t = targets[k % targets.length];
+          const a = Math.atan2(t.z - this.z, t.x - this.x) + (k >= targets.length ? (k - targets.length + 1) * 0.5 : 0);
+          this.booms.push({ x: this.x, z: this.z, vx: Math.cos(a) * BOOMERANG.speed, vz: Math.sin(a) * BOOMERANG.speed, t: 0, back: false, dmg, hit: new Set() });
+        }
+        sfx.swish();
+        return true;
+      }
       default:
         return false;
+    }
+  }
+
+  /** A lightning strike: in paper style a cutout bolt under a storm cloud, otherwise the plain bolt. */
+  private strike(x: number, z: number, big: boolean): void {
+    if (!this.paper) { this.fx.bolt(x, z); return; }
+    const cell = (['bolt0', 'bolt1', 'bolt2'] as const)[Math.floor(Math.random() * 3)];
+    const h = big ? 6.5 : 3.6;
+    this.flash(cell, x, 0, z, h, 0.24, 0, 0, Math.random() < 0.5 ? -1 : 1);
+    if (big) this.flash('cloud', x, h - 0.9, z - 0.2, 3.2, 0.45);
+    this.fx.burst(x, 0.3, z, 0xffe24a, big ? 10 : 5, 6, 0.2);
+    this.fx.ring(x, z, big ? 1.8 : 1.1, 0xfff27a, 0.25);
+    if (big) this.world.addShake(0.06);
+  }
+
+  /** Crackling sparks along a chain from one hero to the next. */
+  private arc(x0: number, z0: number, x1: number, z1: number): void {
+    const steps = Math.max(3, Math.round(Math.hypot(x1 - x0, z1 - z0) / 0.7));
+    for (let i = 1; i < steps; i++) {
+      const k = i / steps;
+      this.fx.burst(x0 + (x1 - x0) * k + (Math.random() - 0.5) * 0.5, 1 + Math.random() * 0.6, z0 + (z1 - z0) * k + (Math.random() - 0.5) * 0.5, 0xfff27a, 1, 1.5, 0.2);
+    }
+  }
+
+  private flash(cell: SpellId, x: number, y: number, z: number, size: number, life: number, vx = 0, vz = 0, face = 1): void {
+    if (!this.paper || this.flashes.length > 160) return;
+    this.flashes.push({ cell, x, y, z, vx, vz, w: size, h: size, life, max: life, roll: (Math.random() - 0.5) * 0.3, face });
+  }
+
+  private updateFlashes(dt: number): void {
+    for (let i = this.flashes.length - 1; i >= 0; i--) {
+      const f = this.flashes[i];
+      f.life -= dt;
+      f.x += f.vx * dt; f.z += f.vz * dt;
+      f.vx *= 0.9; f.vz *= 0.9;
+      if (f.life <= 0) this.flashes.splice(i, 1);
+    }
+  }
+
+  /** Tornados drift toward heroes, pull everyone nearby into the middle, and fling whoever reaches it. */
+  private updateTwisters(dt: number): void {
+    for (let i = this.twisters.length - 1; i >= 0; i--) {
+      const tw = this.twisters[i];
+      tw.life -= dt;
+      tw.tick -= dt;
+      let best = Infinity, tx = 0, tz = 0;
+      this.near(tw.x, tw.z, 9, (h, _dx, _dz, d) => { if (d < best && d > TORNADO.coreRadius) { best = d; tx = h.x; tz = h.z; } });
+      if (best < Infinity) {
+        const d = Math.hypot(tx - tw.x, tz - tw.z) || 1;
+        tw.vx += ((tx - tw.x) / d * TORNADO.speed - tw.vx) * dt * 2;
+        tw.vz += ((tz - tw.z) / d * TORNADO.speed - tw.vz) * dt * 2;
+      }
+      tw.x += tw.vx * dt; tw.z += tw.vz * dt;
+      this.near(tw.x, tw.z, TORNADO.pullRadius, (h, dx, dz, d) => {
+        if (h.air || h.kind === 'champion' || h.def.flying) return;
+        const n = d || 1;
+        // Pull in with a swirl; knockback decays fast, so this settles near the pull speed.
+        h.kx += (-dx / n * TORNADO.pull - dz / n * TORNADO.pull * 0.5) * dt * 8;
+        h.kz += (-dz / n * TORNADO.pull + dx / n * TORNADO.pull * 0.5) * dt * 8;
+      });
+      if (tw.tick <= 0) {
+        tw.tick = TORNADO.hitEvery;
+        this.near(tw.x, tw.z, TORNADO.coreRadius, (h) => {
+          this.damage(h, tw.dmg);
+          if (!h.alive || h.air || h.kind === 'champion' || h.def.flying) return;
+          const a = Math.random() * Math.PI * 2;
+          h.kx = Math.cos(a) * TORNADO.fling; h.kz = Math.sin(a) * TORNADO.fling;
+          h.iceT = 0;
+          this.launch(h, 6, true);
+        });
+        if (Math.random() < 0.5) this.fx.burst(tw.x, 0.3, tw.z, 0xb9c8da, 3, 4, 0.2);
+      }
+      if (tw.life <= 0) { this.fx.burst(tw.x, 1, tw.z, 0xdfe7f2, 12, 5, 0.25); this.twisters.splice(i, 1); }
+    }
+  }
+
+  /** Boomerangs slow down on the way out, turn around, and come home, hitting each hero once per leg. */
+  private updateBoomerangs(dt: number): void {
+    for (let i = this.booms.length - 1; i >= 0; i--) {
+      const b = this.booms[i];
+      b.t += dt;
+      if (!b.back && b.t >= BOOMERANG.out) { b.back = true; b.hit.clear(); }
+      if (b.back) {
+        const dx = this.x - b.x, dz = this.z - b.z, d = Math.hypot(dx, dz) || 1;
+        b.vx = (dx / d) * BOOMERANG.back; b.vz = (dz / d) * BOOMERANG.back;
+        if (d < this.radius || b.t > BOOMERANG.life) { this.booms.splice(i, 1); continue; }
+      } else {
+        const slow = 1 - (b.t / BOOMERANG.out) * 0.7;
+        b.x += b.vx * slow * dt; b.z += b.vz * slow * dt;
+      }
+      if (b.back) { b.x += b.vx * dt; b.z += b.vz * dt; }
+      const sp = Math.hypot(b.vx, b.vz) || 1;
+      this.near(b.x, b.z, 0.9, (h) => {
+        if (b.hit.has(h)) return;
+        b.hit.add(h);
+        this.damage(h, b.dmg, (b.vx / sp) * 5, (b.vz / sp) * 5);
+      });
     }
   }
 
@@ -1634,6 +1824,7 @@ export class Game {
       const s = this.shots[i];
       s.life -= dt;
       s.x += s.vx * dt; s.z += s.vz * dt;
+      if (!s.enemy && !s.src && Math.random() < 0.35) this.fx.burst(s.x, 1, s.z, Math.random() < 0.5 ? 0xff8a1a : 0xffd23a, 1, 1, 0.14);
       if (s.enemy) {
         if (Math.hypot(s.x - this.x, s.z - this.z) < this.radius) { this.hurtBoss(s.dmg); this.taken.arrows += s.dmg; s.life = 0; this.fx.burst(s.x, 1, s.z, 0xffffff, 3, 3, 0.12); }
       } else {
@@ -1643,6 +1834,7 @@ export class Game {
           const sp = Math.hypot(s.vx, s.vz) || 1;
           this.damage(h, s.dmg, (s.vx / sp) * 5, (s.vz / sp) * 5, s.src ?? 'boss');
           this.fx.burst(s.x, 0.8, s.z, 0xff7a1a, 4, 4, 0.16);
+          if (!s.src) this.flash('boom', s.x, 0.3, s.z, 1.7, 0.16);
           s.pierce--;
           if (s.pierce <= 0) { s.life = 0; return true; }
         });
@@ -1908,9 +2100,9 @@ export class Game {
       p.rig.draw(this.castIndex(h), {
         x: h.x, z: h.z, y: h.air ? h.y : h.def.flying ? 1.1 + Math.sin(now * 3 + h.phase) * 0.15 : 0, size, face: h.turn,
         roll: h.air ? h.spin : 0,
-        walk: h.air ? 0 : 1, phase: h.phase, time: now, seed: h.dashCd * 7 + h.variant,
+        walk: h.air || h.iceT > 0 ? 0 : 1, phase: h.phase, time: now, seed: h.dashCd * 7 + h.variant,
         action: h.action, act: h.actT > 0 ? 1 - h.actT / h.actDur : 0,
-        hit: h.hitT / 0.22, air: h.air, flash: h.flash > 0 ? 0.85 : 0,
+        hit: h.hitT / 0.22, air: h.air, flash: h.flash > 0 ? 0.85 : h.iceT > 0 ? 0.5 : 0,
       });
     }
     const gob = CAST.indexOf('goblin');
@@ -1973,6 +2165,40 @@ export class Game {
     }
     for (const c of this.spills) p.loot.push({ x: c.x, y: c.y - 0.3, z: c.z, w: 0.75, h: 0.75, cell: lootCell('coin'), face: Math.cos(now * 9 + c.sx), roll: 0 });
     p.loot.end();
+    this.renderSpells(now);
+  }
+
+  /** Spells as paper cutouts: comet fireballs, bolts under storm clouds, tornados, boomerangs, ice. */
+  private renderSpells(now: number): void {
+    const sp = this.paper?.spells;
+    if (!sp) return;
+    sp.begin();
+    const flicker = Math.floor(now * 14) % 2 ? spellCell('fire1') : spellCell('fire0');
+    for (const s of this.shots) {
+      if (s.enemy || s.src) continue;
+      // The comet points along its flight: flipped for left/right, tipped for toward/away from the camera.
+      const face = s.vx < 0 ? -1 : 1;
+      const roll = -face * Math.atan2(s.vz * 0.8, Math.abs(s.vx) + 0.001);
+      sp.push({ x: s.x, y: 0.35, z: s.z, w: 2.4, h: 2.4, cell: flicker, face, roll: Math.max(-1.2, Math.min(1.2, roll)) });
+    }
+    for (const f of this.flashes) {
+      const k = f.life / f.max;
+      // Pop in big, then shrink away; bolts stay full height and flicker instead.
+      const bolt = f.cell.startsWith('bolt');
+      const scale = bolt ? 1 : Math.min(1, (1 - k) * 6) * (0.6 + 0.4 * k);
+      sp.push({ x: f.x, y: f.y, z: f.z, w: f.w * scale * (bolt ? 0.55 : 1), h: f.h * scale, cell: spellCell(f.cell), face: bolt && Math.floor(now * 30) % 2 ? -f.face : f.face, roll: f.roll, flash: bolt && k > 0.7 ? 0.6 : 0 });
+    }
+    for (const tw of this.twisters) {
+      const grow = Math.min(1, (TORNADO.life - tw.life) * 4, tw.life * 3);
+      sp.push({ x: tw.x, y: 0, z: tw.z, w: 3.3 * grow, h: 4.4 * grow, cell: spellCell(Math.floor(now * 12 + tw.seed) % 2 ? 'twister1' : 'twister0'), face: Math.sin(now * 5 + tw.seed) > 0 ? 1 : -1, roll: Math.sin(now * 7 + tw.seed) * 0.12 });
+    }
+    for (const b of this.booms) sp.push({ x: b.x, y: 0.5, z: b.z, w: 1.7, h: 1.7, cell: spellCell('boomerang'), face: 1, roll: b.t * 22 });
+    for (const h of this.heroes) {
+      if (!h.alive || h.iceT <= 0 || h.air) continue;
+      const size = this.standeeSize(h);
+      sp.push({ x: h.x, y: 0, z: h.z + 0.05, w: size * 1.05, h: size * 0.75, cell: spellCell('ice'), face: h.turn >= 0 ? 1 : -1 });
+    }
+    sp.end();
   }
 
   /** Build-phase grid: faint tiles where building is allowed, and the hovered tile in green or red. */
