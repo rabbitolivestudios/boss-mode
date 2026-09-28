@@ -69,7 +69,7 @@ export class BuildUi {
     $('btn-raid').addEventListener('click', onStart);
     $('btn-repair').addEventListener('click', () => {
       if (this.game.repairAll()) this.say('All repaired!');
-      else this.say('Not enough gold to repair');
+      else this.say(`Repairs cost ${this.game.repairCost()} gold, and 1 coin must stay in your vault`);
       this.shown = '';
       this.refresh();
     });

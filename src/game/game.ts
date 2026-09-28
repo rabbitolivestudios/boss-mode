@@ -500,7 +500,13 @@ export class Game {
 
   canBuild(cx: number, cz: number, id: BuildingId): string | null {
     // The vault always keeps at least one coin, so building can never lose the game on its own.
-    if (this.treasure - BUILDINGS[id].cost < 1) return 'Not enough gold';
+    const spendable = this.treasure - 1;
+    if (BUILDINGS[id].cost > spendable) {
+      // Having exactly the price reads like enough gold, so say why it is not.
+      return this.treasure >= BUILDINGS[id].cost
+        ? `1 coin must stay in your vault! You can spend ${Math.max(0, spendable)}.`
+        : `Need ${BUILDINGS[id].cost - spendable} more gold`;
+    }
     return this.castle.whyNot(cx, cz, id);
   }
 
