@@ -155,11 +155,19 @@ export async function authorizePassword(
     return false;
   }
 }
+/** Each failure says what went wrong, so the owner can tell a typo from a server that is not set up. */
+function failure(status: number): string {
+  if (status === 401) return "Wrong password. Check it and try again.";
+  if (status === 429) return "Too many tries. Wait a minute, then try again.";
+  if (status === 503) return "The dashboard password is not set up on the server yet.";
+  return "This sign-in page is out of date. Reload it and try again.";
+}
 export function loginPage(error?: boolean | string, status = 200): Response {
+  const message = failure(status);
   return new Response(
     `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><meta name="theme-color" content="#1b1033"><title>Analytics · Boss Mode</title><style>
 *{box-sizing:border-box}body{margin:0;min-height:100svh;display:grid;place-items:center;padding:24px;font-family:ui-rounded,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:radial-gradient(ellipse at top,#50289f,#1b1033 65%);color:#fff}.card{width:min(100%,420px);padding:32px 26px;border:3px solid #120a24;border-radius:24px;background:#2e1f57;box-shadow:0 10px 0 #000}.brand{font-size:13px;letter-spacing:.16em;font-weight:850;color:#ffd23a;text-transform:uppercase}.icon{font-size:32px;display:block;margin-bottom:14px}h1{font-size:30px;line-height:1.1;margin:12px 0}p{color:#d8cdf5;font-size:15px;line-height:1.5;margin-bottom:26px}label{display:block;font-weight:750;margin-bottom:8px}input,button{width:100%;min-height:50px;border-radius:12px;font:inherit}input{background:#1b1033;border:2px solid #7d68b8;color:#fff;padding:12px 14px;font-size:18px}input:focus{outline:3px solid #ffd23a;outline-offset:2px}button{margin-top:18px;padding:13px;border:3px solid #120a24;background:#ffd23a;color:#1b1033;font-weight:850;cursor:pointer;box-shadow:0 5px 0 #000}button:focus-visible,a:focus-visible{outline:3px solid #fff;outline-offset:4px}.error{margin:16px 0 0;color:#ffc2c2;font-weight:650}.back{display:block;margin-top:24px;text-align:center;font-size:14px;color:#d8cdf5}.hint{font-size:12px;margin:18px 0 0;text-align:center;color:#b6a8e0}
-</style></head><body><main class="card"><span class="icon" aria-hidden="true">🐉</span><div class="brand">Boss Mode</div><h1>The boss's war room.</h1><p>Sign in to see how the heroes are doing against your players.</p><form method="post" action="/analytics/login"><label for="password">Dashboard password</label><input id="password" name="password" type="password" autocomplete="current-password" required autofocus${error ? ' aria-describedby="login-error" aria-invalid="true"' : ""}>${error ? '<p class="error" id="login-error" role="alert">Could not sign in. Check the password and try again.</p>' : ""}<button type="submit">Open the dashboard →</button></form><p class="hint">Private · 6-hour session</p><a class="back" href="/">Back to the game</a></main></body></html>`,
+</style></head><body><main class="card"><span class="icon" aria-hidden="true">🐉</span><div class="brand">Boss Mode</div><h1>The boss's war room.</h1><p>Sign in to see how the heroes are doing against your players.</p><form method="post" action="/analytics/login"><label for="password">Dashboard password</label><input id="password" name="password" type="password" autocomplete="current-password" required autofocus${error ? ' aria-describedby="login-error" aria-invalid="true"' : ""}>${error ? `<p class="error" id="login-error" role="alert">${message}</p>` : ""}<button type="submit">Open the dashboard →</button></form><p class="hint">Private · 6-hour session</p><a class="back" href="/">Back to the game</a></main></body></html>`,
     {
       status,
       headers: {
