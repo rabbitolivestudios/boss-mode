@@ -1,6 +1,7 @@
 import { BOSSES, SCORE, type BossId } from './config';
 import type { Summary } from './game';
 import { checkName } from './nameguard';
+import { served, uuid } from '../analytics/track';
 
 /**
  * The Hall of Bosses. Players type their own name (checked by `nameguard`); until they do, they get a
@@ -24,7 +25,8 @@ const LOCAL_KEY = 'boss-mode-board';
 
 export interface Entry { season?: number; name: string; score: number; boss: BossId; tier: string; nights: number; win: boolean; at: number; me?: boolean }
 
-interface Identity { id: string; name: string }
+/** `player` is the random id the game's own server knows this device's board row by. */
+interface Identity { id: string; name: string; player: string }
 
 function store<T>(key: string, fallback: T): T {
   try {
@@ -41,7 +43,7 @@ const pick = <T>(a: T[]): T => a[Math.floor(Math.random() * a.length)];
 const rollName = (): string => `${pick(ADJ)} ${pick(NOUN)}`;
 
 const saved = store<Identity | null>(NAME_KEY, null);
-let identity: Identity = { id: saved?.id ?? `p${Math.random().toString(36).slice(2, 12)}`, name: saved && 'name' in checkName(saved.name) ? saved.name : rollName() };
+let identity: Identity = { id: saved?.id ?? `p${Math.random().toString(36).slice(2, 12)}`, name: saved && 'name' in checkName(saved.name) ? saved.name : rollName(), player: saved?.player ?? uuid() };
 keep(NAME_KEY, identity);
 
 export function playerName(): string { return identity.name; }
@@ -51,6 +53,7 @@ export function setPlayerName(raw: string): string | null {
   if ('error' in r) return r.error;
   identity = { ...identity, name: r.name };
   keep(NAME_KEY, identity);
+  void board.rename();
   return null;
 }
 
@@ -85,11 +88,41 @@ interface ClaudeRuntime { use(name: 'db'): Promise<Db | null> }
 
 class Leaderboard {
   private db: Db | null = null;
+  /** True when the game's own server hosts the board; it outranks the claude.ai store. */
+  private server = false;
   private shared: Entry[] | null = null;
   private listeners: (() => void)[] = [];
   last: { score: number; rank: number | null } | null = null;
 
   constructor() {
+    void served.then((on) => {
+      if (on) { this.server = true; void this.refresh(); } else this.useClaude();
+    });
+  }
+
+  private async refresh(): Promise<void> {
+    try {
+      const r = await fetch(`/api/board?me=${identity.player}`, { cache: 'no-store' });
+      if (!r.ok) return;
+      const body = (await r.json()) as { rows: (Record<string, unknown> & { me?: boolean })[] };
+      this.shared = body.rows.flatMap((d): Entry[] => { const e = valid(d); return e ? [{ ...e, me: d.me === true }] : []; });
+      this.emit();
+    } catch { /* offline: keep what is shown */ }
+  }
+
+  private async post(body: Record<string, unknown>): Promise<void> {
+    try {
+      await fetch('/api/board', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ player: identity.player, ...body }) });
+    } catch { /* offline: the local board still has it */ }
+    await this.refresh();
+  }
+
+  /** A new name shows on the player's existing row straight away. */
+  async rename(): Promise<void> {
+    if (this.server) await this.post({ rename: true, name: identity.name });
+  }
+
+  private useClaude(): void {
     const claude = (window as unknown as { claude?: ClaudeRuntime }).claude;
     if (!claude?.use) return;
     void claude.use('db').then((db) => {
@@ -128,6 +161,13 @@ class Leaderboard {
     const rank = list.filter((e) => e.score > score && (this.shared ? !e.me : e.season !== s.season)).length + 1;
     this.last = { score, rank: rank <= TOP ? rank : null };
     this.emit();
+    if (this.server) {
+      await this.post({ name: identity.name, score, boss: s.boss, tier: s.difficulty.id, nights: entry.nights, win: s.win });
+      const shared = this.shared as Entry[] | null;
+      const pos = shared ? shared.findIndex((e) => e.me && e.score === score) : -1;
+      if (pos >= 0) { this.last = { score, rank: pos + 1 }; this.emit(); }
+      return;
+    }
     if (!this.db) return;
     try {
       // One row per player, holding their best season; a worse run leaves it alone.

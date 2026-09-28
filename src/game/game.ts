@@ -15,6 +15,8 @@ import { lootAtlas, lootCell } from './lootart';
 import { SpriteBatch } from './paper';
 import { BossRig, PuppetRig, type Action } from './puppet';
 import { sfx } from './sfx';
+import { FpsMeter, track } from '../analytics/track';
+import type { BuildingKey, PickKey } from '../analytics/contract';
 import type { World } from './world';
 
 export interface Hero {
@@ -53,6 +55,10 @@ export type Choice =
   | { kind: 'passive'; id: PassiveId; level: number }
   | { kind: 'limit'; id: 'might' | 'haste' | 'hp' | 'speed' }
   | { kind: 'snack' };
+
+function choiceKey(c: Choice): PickKey {
+  return c.kind === 'snack' ? 'snack' : `${c.kind}:${c.id}` as PickKey;
+}
 
 export interface Summary { season: number; retries: number; difficulty: Difficulty; win: boolean; time: number; kills: number; level: number; boss: BossId; champions: number; bestCombo: number; treasure: number; stolen: number; reason: 'hp' | 'vault' | 'win'; escapes: Escape[]; allPicksAt: number | null; night: number }
 
@@ -119,6 +125,12 @@ export class Game {
   heroes: Hero[] = [];
   champions: Hero[] = [];
   retries = 0;
+  /** Random id for analytics, set by the app when a season starts or is continued; never the seed. */
+  trackSeason = '';
+  readonly fps = new FpsMeter();
+  private buildStats = { t0: 0, spent: 0, placed: {} as Partial<Record<BuildingKey, number>>, sold: 0, repaired: false };
+  private raidStart = { taken: { contact: 0, arrows: 0, champion: 0 }, buildings: 0 };
+  private offered: PickKey[] = [];
   private shots: Shot[] = [];
   private gems: Gem[] = [];
   private lava: Lava[] = [];
@@ -413,6 +425,7 @@ export class Game {
     this.planBreaches();
     const wrecked = this.shred();
     this.save = this.snapshot();
+    this.buildStats = { t0: performance.now(), spent: 0, placed: {}, sold: 0, repaired: false };
     this.hooks.build(this.night);
     const debut = COUNTERS.find((c) => c.from === this.night);
     if (debut) this.hooks.challenger(debut.kind, debut.card);
@@ -427,6 +440,8 @@ export class Game {
     this.nightTime = 0; this.nightKills = 0; this.nightStolen = 0; this.nightRecovered = 0;
     this.nightDamage = 0; this.nightBuildingKills.clear();
     this.nightStartGold = this.treasure;
+    this.trackBuild();
+    this.raidStart = { taken: { ...this.taken }, buildings: this.castle.buildings.length };
     const last = this.night === NIGHTS.length - 1;
     this.hooks.banner(`NIGHT ${this.night + 1}${last ? ': THE FINAL RAID' : ''}`, last ? 'The Chosen One is coming for your treasure' : 'Guard the vault until sunrise!');
     sfx.horn();
@@ -440,6 +455,7 @@ export class Game {
     this.treasure += returned;
     this.nightRecovered += returned;
     const tribute = NIGHTS[this.night].tribute;
+    this.trackNight('survived');
     this.treasure += tribute;
     const kept = this.nightStartGold > 0 ? (this.nightStartGold - this.nightStolen) / this.nightStartGold : 1;
     const stars = kept >= STARS.three ? 3 : kept >= STARS.two ? 2 : 1;
@@ -494,6 +510,8 @@ export class Game {
     if (why) return why;
     this.castle.place(cx, cz, id, this.night, BUILDINGS[id].hp);
     this.treasure -= BUILDINGS[id].cost;
+    this.buildStats.spent += BUILDINGS[id].cost;
+    this.buildStats.placed[id] = (this.buildStats.placed[id] ?? 0) + 1;
     sfx.place();
     const [x, z] = this.castle.center(cx, cz);
     this.fx.burst(x, 0.5, z, 0xc08a4c, 8, 4, 0.18);
@@ -512,7 +530,10 @@ export class Game {
     if (this.phase !== 'build') return false;
     const b = this.castle.at(cx, cz);
     if (!b) return false;
-    this.treasure += this.refund(cx, cz);
+    const back = this.refund(cx, cz);
+    this.treasure += back;
+    this.buildStats.spent -= back;
+    this.buildStats.sold++;
     this.castle.remove(b);
     sfx.sell();
     return true;
@@ -601,10 +622,12 @@ export class Game {
       const lb = [...LIMIT_BREAKS];
       while (out.length < 3 && lb.length) out.push({ kind: 'limit', id: lb.splice(Math.floor(Math.random() * lb.length), 1)[0].id });
     }
+    this.offered = out.map(choiceKey);
     return out;
   }
 
   choose(c: Choice): void {
+    if (this.offered.length) track({ type: 'pick', season: this.trackSeason, night: this.night + 1, level: this.level, offered: this.offered, picked: choiceKey(c) });
     if (c.kind === 'weapon') {
       const w = this.weapons.get(c.id);
       if (w) w.level = c.level;
@@ -699,6 +722,7 @@ export class Game {
   }
 
   private finish(win: boolean, reason: Summary['reason']): void {
+    if (this.phase === 'raid') this.trackNight(win ? 'survived' : reason === 'vault' ? 'vault' : 'hp');
     this.running = false;
     this.phase = 'over';
     if (win) sfx.win(); else sfx.lose();
@@ -708,6 +732,34 @@ export class Game {
       difficulty: this.difficulty, win, reason, time: this.time, kills: this.kills, level: this.level, boss: this.bossId, champions: this.championsBeaten,
       bestCombo: this.bestCombo, treasure: this.treasure, stolen: this.stolen, escapes: this.escapes, allPicksAt: this.allPicksAt, night: this.night,
     });
+  }
+
+  // ---------- Analytics ----------
+
+  private trackBuild(): void {
+    if (!this.trackSeason) return;
+    track({ type: 'build', build: {
+      season: this.trackSeason, night: this.night + 1, seconds: Math.round((performance.now() - this.buildStats.t0) / 1000),
+      spent: Math.max(0, this.buildStats.spent), gold: this.treasure, placed: this.buildStats.placed, sold: this.buildStats.sold, repaired: this.buildStats.repaired,
+    } });
+  }
+
+  private trackNight(outcome: 'survived' | 'hp' | 'vault'): void {
+    this.fps.flush();
+    if (!this.trackSeason) return;
+    const d = (k: 'contact' | 'arrows' | 'champion') => this.taken[k] - this.raidStart.taken[k];
+    const buildings: Partial<Record<BuildingKey, number>> = {};
+    for (const b of this.castle.buildings) buildings[b.id] = (buildings[b.id] ?? 0) + 1;
+    let byBuildings = 0;
+    for (const n of this.nightBuildingKills.values()) byBuildings += n;
+    track({ type: 'night', report: {
+      season: this.trackSeason, night: this.night + 1, outcome, seconds: Math.round(this.nightTime),
+      hpPct: Math.max(0, Math.round((this.hp / this.maxHp) * 100)), vaultKept: Math.max(0, this.treasure), stolen: this.nightStolen,
+      kills: this.nightKills, buildingKillPct: Math.round((byBuildings / Math.max(1, this.nightKills)) * 100), level: this.level, retries: this.retries,
+      // Champion hits are also counted in contact damage; split them out so the shares add up.
+      damage: { contact: Math.round(Math.max(0, d('contact') - d('champion'))), arrows: Math.round(d('arrows')), champion: Math.round(d('champion')) },
+      buildings, destroyed: Math.max(0, this.raidStart.buildings - this.castle.buildings.length),
+    } });
   }
 
   // ---------- Spatial grid ----------
@@ -1115,6 +1167,8 @@ export class Game {
     const cost = this.repairCost();
     if (this.phase !== 'build' || cost <= 0 || this.treasure - cost < 1) return false;
     this.treasure -= cost;
+    this.buildStats.spent += cost;
+    this.buildStats.repaired = true;
     for (const b of this.castle.buildings) b.hp = b.maxHp;
     sfx.repair();
     return true;

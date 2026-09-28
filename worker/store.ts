@@ -89,12 +89,17 @@ export class Store extends DurableObject {
   async submit(player: string, raw: Record<string, unknown>): Promise<{ ok: true } | { ok: false; error: string }> {
     const checked = checkName(String(raw.name ?? ''));
     if ('error' in checked) return { ok: false, error: checked.error };
+    const sql = this.ctx.storage.sql;
+    if (raw.rename === true) {
+      const r = sql.exec<{ data: string }>('SELECT data FROM board WHERE player=?', player).toArray()[0];
+      if (r) sql.exec('UPDATE board SET data=? WHERE player=?', JSON.stringify({ ...(JSON.parse(r.data) as BoardRow), name: checked.name }), player);
+      return { ok: true };
+    }
     const score = Number(raw.score), nights = Number(raw.nights);
     if (!Number.isInteger(score) || score < 0 || score > MAX_SCORE) return { ok: false, error: 'bad score' };
     if (!Number.isInteger(nights) || nights < 0 || nights > 7) return { ok: false, error: 'bad nights' };
     if (!BOSS_IDS.includes(raw.boss as never) || !TIER_IDS.includes(raw.tier as never)) return { ok: false, error: 'bad season' };
     const row: BoardRow = { name: checked.name, score, boss: raw.boss as BoardRow['boss'], tier: raw.tier as BoardRow['tier'], nights, win: raw.win === true, at: Date.now() };
-    const sql = this.ctx.storage.sql;
     const prev = sql.exec<{ data: string }>('SELECT data FROM board WHERE player=?', player).toArray()[0];
     const old = prev ? (JSON.parse(prev.data) as BoardRow) : null;
     const best = !old || row.score > old.score ? row : { ...old, name: row.name };

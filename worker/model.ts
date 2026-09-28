@@ -127,7 +127,8 @@ export function addToSeason(prev: SeasonRecord | undefined, e: GameEvent, now: n
   if (e.type === 'night' && prev.nights.length < 60) return { ...prev, nights: [...prev.nights, e.report] };
   if (e.type === 'build' && prev.builds.length < 60) return { ...prev, builds: [...prev.builds, e.build] };
   if (e.type === 'pick' && prev.picks.length < 400) return { ...prev, picks: [...prev.picks, { night: e.night, level: e.level, offered: e.offered, picked: e.picked }] };
-  if (e.type === 'season_end' && !prev.end) {
+  // A lost night can be retried, so the latest ending of a season is the one that stands.
+  if (e.type === 'season_end') {
     return { ...prev, end: { outcome: e.outcome, nights: e.nights, score: e.score, retries: e.retries, level: e.level, seconds: e.seconds, allPicksAt: e.allPicksAt } };
   }
   return null;
@@ -231,12 +232,12 @@ export function summarize(
       locales: counts(sessions.map((s) => s.locale)), countries: counts(sessions.map((s) => s.country)),
     },
     funnel: [
-      { key: 'visit', label: 'Opened the game', n: sessions.filter((s) => s.visit).length },
-      { key: 'start', label: 'Started a season', n: reached(() => true) },
+      { key: 'visit', label: 'Opened game', n: sessions.filter((s) => s.visit).length },
+      { key: 'start', label: 'Started season', n: reached(() => true) },
       { key: 'n1', label: 'Survived night 1', n: reached(survivedNight(1)) },
       { key: 'n3', label: 'Survived night 3', n: reached(survivedNight(3)) },
       { key: 'n5', label: 'Survived night 5', n: reached(survivedNight(5)) },
-      { key: 'win', label: 'Won a season', n: reached((s) => s.end?.outcome === 'win') },
+      { key: 'win', label: 'Won season', n: reached((s) => s.end?.outcome === 'win') },
     ],
     seasons: {
       started: seasons.length, finished: finished.length, wins: finished.filter((s) => s.end?.outcome === 'win').length,

@@ -81,7 +81,8 @@ export default {
         return r;
       }
       if (path !== '/analytics' && path !== '/analytics/') return new Response(null, { status: 404 });
-      const page = await env.ASSETS.fetch(new Request(new URL('/analytics.html', url), request));
+      // Asked for by its clean path: the asset server redirects /analytics.html to /analytics, which would loop.
+      const page = await env.ASSETS.fetch(new Request(new URL('/analytics', url), request));
       const secured = new Response(page.body, page);
       secured.headers.set('Cache-Control', 'private, no-store');
       secured.headers.set('X-Robots-Tag', 'noindex, nofollow');

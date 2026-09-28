@@ -12,9 +12,10 @@
     "bindings": [{ "name": "STORE", "class_name": "Store" }]
   },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Store"] }],
-  // Per-IP limits. Namespace ids only need to be unique within the Cloudflare account.
+  // Per-IP limits. A classroom or household shares one address, so the event limit leaves room for ~30 players at once.
+  // Namespace ids only need to be unique within the Cloudflare account.
   "ratelimits": [
-    { "name": "EVENT_LIMITER", "namespace_id": "81530101", "simple": { "limit": 240, "period": 60 } },
+    { "name": "EVENT_LIMITER", "namespace_id": "81530101", "simple": { "limit": 600, "period": 60 } },
     { "name": "BOARD_LIMITER", "namespace_id": "81530102", "simple": { "limit": 30, "period": 60 } },
     { "name": "READ_LIMITER", "namespace_id": "81530103", "simple": { "limit": 120, "period": 60 } },
     { "name": "LOGIN_LIMITER", "namespace_id": "81530104", "simple": { "limit": 6, "period": 60 } }

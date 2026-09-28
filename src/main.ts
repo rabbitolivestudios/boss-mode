@@ -5,7 +5,9 @@ import { Game, type SeasonSave } from './game/game';
 import { Input } from './game/input';
 import { duckMusic, setSoundPrefs, soundPrefs, unlockAudio } from './game/audio';
 import { music, type Mood } from './game/music';
-import { board, drawBoard, playerName, setPlayerName } from './game/leaderboard';
+import { board, drawBoard, playerName, seasonScore, setPlayerName } from './game/leaderboard';
+import { track, uuid } from './analytics/track';
+import type { TierKey } from './analytics/contract';
 import { currentStyle } from './game/style';
 import { Ui } from './game/ui';
 import { World } from './game/world';
@@ -45,6 +47,7 @@ const game: Game = new Game(world, byId('labels'), {
     if (s.win) writeSave(null);
     ui.end(s, () => { ui.showTitle(begin); showContinue(); }, s.win ? undefined : () => { byId('end').classList.add('hidden'); game.retryNight(); });
     void board.submit(s);
+    track({ type: 'season_end', season: game.trackSeason, outcome: s.win ? 'win' : s.reason === 'vault' ? 'vault' : 'hp', nights: s.win ? 7 : s.night, score: seasonScore(s), retries: s.retries, level: s.level, seconds: Math.round(s.time), allPicksAt: s.allPicksAt === null ? null : Math.round(s.allPicksAt) });
   },
   build: (night) => {
     ui.hud(false);
@@ -77,6 +80,15 @@ function begin(boss: BossId): void {
   unlockAudio();
   ui.startRun();
   game.start(boss, ui.difficulty);
+  startTracking(false);
+}
+
+/** Every started or continued season gets a fresh random analytics id; a retried night keeps it. */
+function startTracking(continued: boolean): void {
+  game.trackSeason = uuid();
+  track({ type: 'season_start', season: game.trackSeason, boss: game.bossId, tier: game.difficulty.id as TierKey, continued });
+  const p = soundPrefs();
+  track({ type: 'settings', music: p.music, sfx: p.sfx });
 }
 
 /** Offers to pick up a saved season from its last build phase. */
@@ -86,7 +98,7 @@ function showContinue(): void {
   btn.hidden = !sv;
   if (!sv) return;
   btn.textContent = `Continue: ${BOSSES[sv.boss].name}, night ${sv.night + 1}`;
-  btn.onclick = () => { unlockAudio(); ui.startRun(); game.restore(sv); };
+  btn.onclick = () => { unlockAudio(); ui.startRun(); game.restore(sv); startTracking(true); };
 }
 
 function togglePause(): void {
@@ -101,6 +113,9 @@ byId('roar').addEventListener('pointerdown', (e) => { e.stopPropagation(); game.
 byId('btn-pause').addEventListener('click', togglePause);
 byId('btn-resume').addEventListener('click', togglePause);
 byId('btn-quit').addEventListener('click', () => {
+  if (game.trackSeason && game.phase !== 'over') {
+    track({ type: 'season_end', season: game.trackSeason, outcome: 'quit', nights: game.night, score: 0, retries: game.retries, level: game.level, seconds: Math.round(game.time), allPicksAt: null });
+  }
   game.paused = false;
   game.running = false;
   ui.pause(false);
@@ -129,8 +144,8 @@ byId('btn-settings-done').addEventListener('click', () => {
   byId('settings').classList.add('hidden');
   if (pausedBySettings) { game.paused = false; pausedBySettings = false; }
 });
-byId('set-music').addEventListener('click', () => { const p = soundPrefs(); setSoundPrefs({ ...p, music: !p.music }); showSoundPrefs(); });
-byId('set-sfx').addEventListener('click', () => { const p = soundPrefs(); setSoundPrefs({ ...p, sfx: !p.sfx }); showSoundPrefs(); });
+byId('set-music').addEventListener('click', () => { const p = soundPrefs(); setSoundPrefs({ ...p, music: !p.music }); showSoundPrefs(); const n = soundPrefs(); track({ type: 'settings', music: n.music, sfx: n.sfx }); });
+byId('set-sfx').addEventListener('click', () => { const p = soundPrefs(); setSoundPrefs({ ...p, sfx: !p.sfx }); showSoundPrefs(); const n = soundPrefs(); track({ type: 'settings', music: n.music, sfx: n.sfx }); });
 // Browsers only start audio after a gesture, so the first tap or key anywhere starts the title music.
 for (const ev of ['pointerdown', 'keydown'] as const) window.addEventListener(ev, unlockAudio, { capture: true });
 
@@ -161,6 +176,11 @@ document.addEventListener('visibilitychange', () => {
 
 ui.showTitle(begin);
 showContinue();
+track({ type: 'visit' });
+// Only a category is reported for errors, never the message, which could carry page text.
+window.addEventListener('error', () => track({ type: 'client_error', code: 'script' }));
+window.addEventListener('unhandledrejection', () => track({ type: 'client_error', code: 'script' }));
+byId('game').addEventListener('webglcontextlost', () => track({ type: 'client_error', code: 'webgl' }));
 
 const nameInput = byId('player-name') as HTMLInputElement;
 function showName(): void {
@@ -169,6 +189,7 @@ function showName(): void {
 function saveName(): void {
   if (nameInput.value.trim() === playerName()) return;
   const why = setPlayerName(nameInput.value);
+  track({ type: 'name', accepted: !why });
   byId('name-msg').textContent = why ?? `Saved! You are ${playerName()}.`;
   if (why) nameInput.value = playerName();
   else showBoards();
@@ -191,8 +212,10 @@ if (import.meta.env.MODE !== 'production') (window as unknown as { game: Game })
 
 let last = performance.now();
 function frame(now: number): void {
-  const dt = Math.min(0.05, (now - last) / 1000) * timeScale;
+  const real = (now - last) / 1000;
+  const dt = Math.min(0.05, real) * timeScale;
   last = now;
+  if (game.running && !game.paused && !game.choosing && !document.hidden) game.fps.frame(real);
   game.update(dt, input.move());
   world.update(game.x, game.z, dt);
   game.render();
