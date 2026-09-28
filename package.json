@@ -6,17 +6,24 @@
   "description": "Web survivors-like with the roles flipped: you are the final boss, and waves of heroes come for you.",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && vite build",
+    "build": "tsc --noEmit && tsc -p worker/tsconfig.json && vite build",
     "build:single": "npm run build && node scripts/inline.mjs",
-    "typecheck": "tsc --noEmit",
-    "preview": "vite preview"
+    "typecheck": "tsc --noEmit && tsc -p worker/tsconfig.json",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "worker:dev": "wrangler dev",
+    "deploy": "npm run build && wrangler deploy",
+    "set-password": "node scripts/set-dashboard-password.mjs"
   },
   "dependencies": {
     "three": "^0.186.1"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260928.1",
     "@types/three": "^0.186.0",
     "typescript": "^7.0.2",
-    "vite": "^8.3.1"
+    "vite": "^8.3.1",
+    "vitest": "^5.0.2",
+    "wrangler": "^4.143.0"
   }
 }
