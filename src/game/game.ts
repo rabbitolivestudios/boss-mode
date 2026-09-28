@@ -906,7 +906,7 @@ export class Game {
 
   /** How much tougher heroes are right now, including the difficulty tier. */
   private heroToughness(): number {
-    return (1 + this.time / RUN.hpGrowthPeriod) * (1 + NIGHT_TOUGHNESS * this.night) * this.difficulty.hp;
+    return (1 + this.time / RUN.hpGrowthPeriod) * NIGHT_TOUGHNESS[Math.min(this.night, NIGHT_TOUGHNESS.length - 1)] * this.difficulty.hp;
   }
 
   private addHero(kind: HeroKind, x: number, z: number): Hero {

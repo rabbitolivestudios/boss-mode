@@ -294,7 +294,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
   lightning: {
     name: 'Storm Call', icon: '⚡',
     blurb: ['Lightning zaps random heroes.', '+1 strike', '+1 strike, bolts jump to a 2nd hero', '+1 strike, more damage', '+2 strikes, bolts jump twice'],
-    cd: [2.0, 1.8, 1.6, 1.5, 1.2], dmg: [18, 22, 26, 34, 44], n: [1, 2, 3, 4, 6],
+    cd: [2.0, 1.8, 1.6, 1.5, 1.2], dmg: [16, 20, 24, 30, 40], n: [1, 2, 3, 4, 6],
   },
   minions: {
     name: 'Summon Goblins', icon: '👺',
@@ -308,13 +308,13 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
   },
   saw: {
     name: 'Saw Blade', icon: '🪚',
-    blurb: ['Drop a spinning saw. Lure heroes into it.', 'Sharper saw', '+1 saw', 'Sharper saw', '+1 saw, bigger blades'],
-    cd: [5.0, 4.6, 4.2, 3.8, 3.2], dmg: [7, 10, 12, 16, 20], n: [1, 1, 2, 2, 3],
+    blurb: ['Drop a spinning saw. Lure heroes into it.', '+1 saw', 'Sharper saw', '+1 saw', '+1 saw, faster drops'],
+    cd: [4.2, 3.8, 3.4, 3.0, 2.6], dmg: [11, 14, 17, 21, 27], n: [1, 2, 2, 3, 4],
   },
   frost: {
     name: 'Frost Nova', icon: '❄️',
     blurb: ['Blast of ice freezes nearby heroes solid. Frozen thieves cannot run!', 'Bigger blast', 'Colder: longer freeze', 'Bigger AND colder', 'ICE AGE'],
-    cd: [4.6, 4.3, 3.9, 3.5, 3.0], dmg: [6, 8, 10, 13, 18], n: [4.5, 5.2, 5.6, 6.4, 7.6],
+    cd: [4.2, 3.9, 3.5, 3.1, 2.6], dmg: [9, 11, 14, 17, 23], n: [4.8, 5.4, 5.8, 6.6, 7.8],
   },
   tornado: {
     name: 'Tornado', icon: '🌪️',
@@ -351,7 +351,7 @@ export const PHYSICS = {
   comboWindow: 1.5,
 };
 
-export const TRAPS = { springLife: 22, springPower: 17, sawLife: 14, sawRadius: 1.1, sawHitEvery: 0.3 };
+export const TRAPS = { springLife: 22, springPower: 17, sawLife: 16, sawRadius: 1.35, sawHitEvery: 0.3 };
 
 export const MINION = { hp: 30, speed: 7.5, radius: 0.4, hitEvery: 0.4, life: 20 };
 
@@ -412,8 +412,13 @@ export const LIMIT_BREAKS: { id: 'might' | 'haste' | 'hp' | 'speed'; name: strin
   { id: 'speed', name: 'Limit Break: Zoom', icon: '⭐', blurb: '+3% move speed', per: 0.03 },
 ];
 
-/** Hero health rises this much per night on top of the time curve, so later nights hit harder in kind. */
-export const NIGHT_TOUGHNESS = 0.15;
+/**
+ * Hero health multiplier for each night, on top of the time curve. It used to rise 0.15 a night, but
+ * 159 bot seasons showed night 2 as the wall (13 of 20 Normal losses; counter-heroes debut then) while
+ * nights 4-6 were easy (lowest health 60-80%) because upgrades outgrow a straight line. So night 2
+ * stays at 1 and the middle nights climb faster.
+ */
+export const NIGHT_TOUGHNESS = [1, 1, 1.2, 1.55, 1.85, 2.15, 2.3];
 
 /**
  * Leaderboard score for a season. Nights are worth the most so a deep run beats a farmed one;
