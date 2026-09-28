@@ -1,5 +1,5 @@
 import {
-  BOSS_IDS, BROWSERS, BUILDING_IDS, DEVICES, ERROR_CODES, LOCALES, NIGHT_OUTCOMES, PICK_IDS, SEASON_OUTCOMES, TIER_IDS,
+  BOSS_IDS, BROWSERS, PHASES, BUILDING_IDS, DEVICES, ERROR_CODES, LOCALES, NIGHT_OUTCOMES, PICK_IDS, SEASON_OUTCOMES, TIER_IDS,
   type Activity, type BuildReport, type BuildingKey, type Count, type GameEvent, type NightReport, type NightStats, type PickKey,
   type Summary, type Traffic,
 } from '../src/analytics/contract';
@@ -9,6 +9,8 @@ import {
 export const RETENTION_MS = 90 * 86400000;
 const MAX_EVENTS_PER_SESSION = 1500;
 const TIME_ZONE = 'America/Chicago';
+/** A game that pinged within this long counts as playing now; pings come every minute. */
+export const LIVE_MS = 3 * 60000;
 
 export interface SessionRecord {
   id: string; firstAt: number; lastAt: number; test: boolean; events: number;
@@ -22,6 +24,8 @@ export interface SessionRecord {
   fps: [number, number][];
   errors: Record<string, number>;
   names: { accepted: number; rejected: number };
+  /** What the game was doing at its latest ping. */
+  now?: { phase: string; night: number };
 }
 
 export interface SeasonRecord {
@@ -94,6 +98,7 @@ export function normalize(raw: unknown): GameEvent {
     case 'perf': return { ...ctx, type: 'perf', fpsMedian: num(e.fpsMedian, 0, 500), fpsLow: num(e.fpsLow, 0, 500) };
     case 'name': return { ...ctx, type: 'name', accepted: bool(e.accepted) };
     case 'client_error': return { ...ctx, type: 'client_error', code: oneOf(ERROR_CODES, e.code) };
+    case 'ping': return { ...ctx, type: 'ping', phase: oneOf(PHASES, e.phase), night: int(e.night, 0, 7) };
     default: throw new BadEvent('type');
   }
 }
@@ -112,6 +117,7 @@ export function addToSession(prev: SessionRecord, e: GameEvent, now: number): Se
   const s: SessionRecord = { ...prev, lastAt: now, events: prev.events + 1, test: prev.test || e.test === true };
   if (e.type === 'visit') s.visit = true;
   if (e.type === 'landing') s.landing = true;
+  if (e.type === 'ping') s.now = { phase: e.phase, night: e.night };
   if (e.type === 'season_start' && !s.seasons.includes(e.season) && s.seasons.length < 100) s.seasons = [...s.seasons, e.season];
   if (e.type === 'settings') s.settings = { music: e.music, sfx: e.sfx };
   if (e.type === 'perf' && s.fps.length < 60) s.fps = [...s.fps, [e.fpsMedian, e.fpsLow]];
@@ -202,6 +208,14 @@ export function summarize(
   const keep = (test: boolean): boolean => traffic === 'all' || (traffic === 'test') === test;
   const sessions = allSessions.filter((s) => s.firstAt >= from && keep(s.test));
   const seasons = allSeasons.filter((s) => s.startedAt >= from && keep(s.test));
+
+  const recent = allSessions.filter((s) => s.visit && keep(s.test) && now - s.lastAt <= LIVE_MS);
+  const lastEvent = allSessions.filter((s) => keep(s.test)).reduce((m, s) => Math.max(m, s.lastAt), 0);
+  const live = {
+    windowMinutes: LIVE_MS / 60000, playing: recent.length, inRaid: recent.filter((s) => s.now?.phase === 'raid').length,
+    lastEventAt: lastEvent ? new Date(lastEvent).toISOString() : null,
+    now: recent.map((s) => ({ device: s.device, phase: s.now?.phase ?? 'title', night: s.now?.night ?? 0 })),
+  };
 
   const people = players(sessions);
   const everyone = new Set(sessions.flatMap((s) => (s.visitorKey ? [s.visitorKey] : [])));
@@ -323,6 +337,7 @@ export function summarize(
       { key: 'win', label: 'Won season', n: reached((s) => s.end?.outcome === 'win') },
     ],
     hours: [...hours].map(([k, n]) => { const [w, h] = k.split(':').map(Number); return { weekday: w, hour: h, sessions: n }; }),
+    live,
     activity: activity.slice(0, ACTIVITY_SIZE),
     previous,
     seasons: {

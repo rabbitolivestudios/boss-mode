@@ -95,15 +95,30 @@ function breakdown(title: string, ic: IconName, list: { key: string; n: number }
 
 const countries = (s: Summary) => breakdown('Countries', 'globe', s.audience.countries, s.audience.sessions, countryName, flag);
 
+const PHASE: Record<string, string> = { title: 'on the menu', build: 'building', raid: 'in a raid', dawn: 'at dawn', over: 'on the results screen' };
+const DEVICE_WORD: Record<string, string> = { mobile: 'phone', tablet: 'tablet', desktop: 'computer' };
+
+/** Right now, whatever the period: games that pinged in the last few minutes, and the latest event. */
+function liveBar(s: Summary): string {
+  const l = s.live;
+  const ago = (iso: string) => {
+    const m = Math.max(0, Math.round((Date.parse(s.generatedAt) - Date.parse(iso)) / 60000));
+    return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} d ago`;
+  };
+  const who = l.now.slice(0, 6).map((p) => `<span class="live-chip">${esc(DEVICE_WORD[p.device] ?? p.device)} · ${esc(PHASE[p.phase] ?? p.phase)}${p.night && p.phase !== 'title' ? ` · night ${p.night}` : ''}</span>`).join('');
+  return `<div class="livebar${l.playing ? ' on' : ''}"><span class="live-dot"></span><b>${l.playing ? `${fmt(l.playing)} playing now` : 'Nobody playing right now'}</b>` +
+    `${who}<span class="live-last">Last event ${l.lastEventAt ? esc(ago(l.lastEventAt)) : 'never'} · games report every minute while open</span></div>`;
+}
+
 export function overview(s: Summary): string {
-  return `${kpis(s)}${strip(s)}<div class="grid">${dailyCard(s)}${funnelCard(s)}</div>${banner(s)}` +
+  return `${liveBar(s)}${kpis(s)}${strip(s)}<div class="grid">${dailyCard(s)}${funnelCard(s)}</div>${banner(s)}` +
     `<div class="grid">${heatCard(s)}${activityCard(s)}</div>` +
     `<h3 class="section">${icon('users', 'ic')} Who plays</h3><div class="grid three">${deviceCard(s)}${countries(s)}${breakdown('Languages', 'languages', s.audience.locales, s.audience.sessions, (k) => LOCALE[k] ?? k)}</div>`;
 }
 
 export function players(s: Summary): string {
   const a = s.audience;
-  return `${kpis(s)}<div class="grid">${dailyCard(s)}${card({
+  return `${liveBar(s)}${kpis(s)}<div class="grid">${dailyCard(s)}${card({
     title: 'Landing page', ic: 'door', hint: 'Visitors who saw the front page, and how many pressed play.',
     body: bars([{ label: 'Saw the landing page', value: a.landing.sessions, text: fmt(a.landing.sessions), tip: 'Sessions that opened bossmode.mac-tbo.com' },
       { label: 'Went on to play', value: a.landing.played, text: `${fmt(a.landing.played)} · ${pct(share(a.landing.played, a.landing.sessions))}`, tip: 'Of those, sessions that opened the game' }], { slot: 1 }),

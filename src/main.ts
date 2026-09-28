@@ -179,6 +179,10 @@ document.addEventListener('visibilitychange', () => {
 ui.showTitle(begin);
 showContinue();
 track({ type: 'visit' });
+// A heartbeat while the game is on screen, so the dashboard can show who is playing right now.
+const ping = () => { if (!document.hidden) track({ type: 'ping', phase: game.phase, night: game.phase === 'title' ? 0 : game.night + 1 }); };
+setInterval(ping, 60000);
+document.addEventListener('visibilitychange', ping);
 // Only a category is reported for errors, never the message, which could carry page text.
 window.addEventListener('error', () => track({ type: 'client_error', code: 'script' }));
 window.addEventListener('unhandledrejection', () => track({ type: 'client_error', code: 'script' }));

@@ -133,3 +133,22 @@ describe('counting players', () => {
     expect(s.audience.playerDevices).toEqual([{ key: 'mobile|Safari', n: 1 }]);
   });
 });
+
+describe('playing now', () => {
+  test('a ping records what the game is doing and rejects unknown phases', () => {
+    expect(normalize({ ...ctx, type: 'ping', phase: 'raid', night: 12 })).toMatchObject({ type: 'ping', phase: 'raid', night: 7 });
+    expect(() => normalize({ ...ctx, type: 'ping', phase: 'shop', night: 1 })).toThrow(BadEvent);
+  });
+  test('counts a game that pinged in the last few minutes, and stops counting it after', () => {
+    const { session, now } = build([{ ...ctx, type: 'visit' }, { ...ctx, type: 'ping', phase: 'raid', night: 4 }]);
+    const live = summarize([session], [], 7, 'real', now, now).live;
+    expect(live).toMatchObject({ playing: 1, inRaid: 1, now: [{ device: 'mobile', phase: 'raid', night: 4 }] });
+    expect(live.lastEventAt).toBe(new Date(session.lastAt).toISOString());
+    const later = summarize([session], [], 7, 'real', session.lastAt + 4 * 60000, now).live;
+    expect(later.playing).toBe(0);
+  });
+  test('a landing-page-only browser is not "playing"', () => {
+    const { session, now } = build([{ ...ctx, type: 'landing' }]);
+    expect(summarize([session], [], 7, 'real', now, now).live.playing).toBe(0);
+  });
+});

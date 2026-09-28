@@ -173,3 +173,11 @@ td.num, th:not(:first-child) { text-align: right; font-variant-numeric: tabular-
   .strip { justify-content: flex-start; }
   .banner { flex-direction: column; gap: 8px; }
 }
+
+.livebar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 14px; margin: 0 0 14px; border-radius: 14px; background: var(--card, rgba(255,255,255,.04)); border: 1px solid rgba(255,255,255,.08); font-size: 14px; }
+.livebar .live-dot { width: 10px; height: 10px; border-radius: 50%; background: #6b6488; }
+.livebar.on .live-dot { background: #3ddc84; box-shadow: 0 0 0 4px rgba(61, 220, 132, .2); animation: livepulse 1.6s ease-in-out infinite; }
+.live-chip { font-size: 12px; padding: 2px 8px; border-radius: 999px; background: rgba(61, 220, 132, .14); color: #bff5d6; }
+.live-last { margin-left: auto; color: var(--muted); font-size: 12px; }
+@keyframes livepulse { 50% { box-shadow: 0 0 0 7px rgba(61, 220, 132, .05); } }
+@media (prefers-reduced-motion: reduce) { .livebar.on .live-dot { animation: none; } }

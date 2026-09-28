@@ -19,6 +19,7 @@ export const ERROR_CODES = ['script', 'webgl', 'audio', 'storage', 'network'] as
 export const DEVICES = ['mobile', 'tablet', 'desktop'] as const;
 export const BROWSERS = ['Safari', 'Chrome', 'Firefox', 'Edge', 'other'] as const;
 export const LOCALES = ['pt', 'en', 'es', 'other'] as const;
+export const PHASES = ['title', 'build', 'raid', 'dawn', 'over'] as const;
 
 export type BossKey = (typeof BOSS_IDS)[number];
 export type TierKey = (typeof TIER_IDS)[number];
@@ -79,6 +80,8 @@ export type GameEvent = EventContext & (
   | { type: 'perf'; fpsMedian: number; fpsLow: number }
   | { type: 'name'; accepted: boolean }
   | { type: 'client_error'; code: ErrorCode }
+  /** Sent once a minute while the game is open and visible, so the dashboard can show who is playing now. */
+  | { type: 'ping'; phase: (typeof PHASES)[number]; night: number }
 );
 
 export type Traffic = 'real' | 'test' | 'all';
@@ -124,6 +127,8 @@ export interface Summary {
   funnel: { key: string; label: string; n: number }[];
   /** Sessions by weekday (Sunday = 0) and hour, Chicago time, for the when-do-they-play heatmap. */
   hours: { weekday: number; hour: number; sessions: number }[];
+  /** Who is playing right now: browsers whose game sent anything in the last few minutes, any period. */
+  live: { windowMinutes: number; playing: number; inRaid: number; lastEventAt: string | null; now: { device: string; phase: string; night: number }[] };
   /** The latest things that happened, newest first. Never names or ids: only kinds and categories. */
   activity: Activity[];
   /** The same headline numbers for the period just before, so cards can show a change. */

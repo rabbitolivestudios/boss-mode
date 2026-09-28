@@ -85,12 +85,13 @@ export function stacked(rows: { label: string; parts: Record<string, number>; no
 /** Stacked columns per day (two series), with a scale on the left and first/last date labels. */
 export function dailyColumns(days: { date: string; a: number; b: number; tip: string }[], series: [Series, Series]): string {
   if (!days.some((d) => d.a + d.b > 0)) return empty('No players in this period yet.');
-  const max = Math.max(1, ...days.map((d) => d.a + d.b));
+  // An even top keeps the middle label a whole number (1, 1, 0 read as a bug on a one-player day).
+  const top = Math.max(2, ...days.map((d) => d.a + d.b)), max = top + (top % 2);
   const col = (d: (typeof days)[number]) => `<span class="col" data-tip="${esc(d.tip)}"><span class="col-stack" style="height:${((d.a + d.b) / max) * 100}%">` +
     `${d.b ? `<span class="col-seg" style="flex:${d.b};background:var(--series-${series[1].slot})"></span>` : ''}` +
     `${d.a ? `<span class="col-seg" style="flex:${d.a};background:var(--series-${series[0].slot})"></span>` : ''}</span></span>`;
   return legend(series) + `<div class="columns" role="img" aria-label="${esc(series[0].label)} and ${esc(series[1].label)} per day">` +
-    `<div class="col-axis-y"><span>${fmt(max)}</span><span>${fmt(Math.round(max / 2))}</span><span>0</span></div>` +
+    `<div class="col-axis-y"><span>${fmt(max)}</span><span>${fmt(max / 2)}</span><span>0</span></div>` +
     `<div class="col-plot">${days.map(col).join('')}</div></div>` +
     `<div class="col-axis-x"><span>${esc(days[0].date.slice(5).replace('-', '/'))}</span><span>${esc(days[days.length - 1].date.slice(5).replace('-', '/'))}</span></div>`;
 }
