@@ -114,6 +114,9 @@ h2 { font-size: clamp(36px, 8vw, 64px); margin: 0; color: var(--gold); text-shad
   .boss-card .em { font-size: 40px; }
   #roar { width: 80px; height: 80px; font-size: 18px; }
   #timer { font-size: 24px; }
+  /* On narrow screens the buttons drop below the top bar so they never cover the kill counter. */
+  #buttons { top: 74px; }
+  #killfeed { top: 124px; }
 }
 
 .boss-card .portrait { width: 130px; height: 130px; display: block; margin: -18px auto -6px; filter: drop-shadow(0 4px 0 rgba(0,0,0,.35)); }
