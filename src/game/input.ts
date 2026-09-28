@@ -6,6 +6,8 @@ export class Input {
   private stick = { x: 0, y: 0 };
   onRoar: () => void = () => {};
   onPause: () => void = () => {};
+  /** Off during the build phase, when taps place buildings instead of moving the boss. */
+  joystick = true;
 
   constructor(private base: HTMLElement, private knob: HTMLElement) {
     window.addEventListener('keydown', (e) => {
@@ -19,7 +21,7 @@ export class Input {
     const surface = document.getElementById('touch-surface');
     if (!surface) throw new Error('missing #touch-surface');
     surface.addEventListener('pointerdown', (e) => {
-      if (this.touchId !== null) return;
+      if (!this.joystick || this.touchId !== null) return;
       this.touchId = e.pointerId;
       this.origin = { x: e.clientX, y: e.clientY };
       this.stick = { x: 0, y: 0 };

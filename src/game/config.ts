@@ -1,8 +1,6 @@
 // All tunable numbers live here so the game can be rebalanced without touching logic.
 
 export const RUN = {
-  /** Seconds until the final champion arrives. */
-  finalChampionAt: 450,
   spawnRadius: 26,
   maxHeroes: 520,
   maxGems: 380,
@@ -62,7 +60,7 @@ export const TREASURE = {
   heistGrowth: 70,
 };
 
-export type DifficultyId = 'normal' | 'heroic' | 'legendary';
+export type DifficultyId = 'chill' | 'normal' | 'heroic' | 'legendary';
 
 export interface Difficulty {
   id: DifficultyId;
@@ -74,12 +72,21 @@ export interface Difficulty {
   loot: number;
 }
 
-/** Each tier unlocks by winning the one before it. */
+/**
+ * Chill and Normal are open from the start (Normal is the default); each tier after that unlocks by
+ * winning the one before it. After playtests where strong players won easily, the ladder was shifted up:
+ * Chill is the original Normal, Normal is the original Heroic.
+ */
 export const DIFFICULTIES: Difficulty[] = [
-  { id: 'normal', name: 'Normal', hp: 1, spawn: 1, damage: 1, loot: 1 },
-  { id: 'heroic', name: 'Heroic', hp: 1.5, spawn: 1.25, damage: 1.2, loot: 1.3 },
-  { id: 'legendary', name: 'Legendary', hp: 2.2, spawn: 1.5, damage: 1.4, loot: 1.6 },
+  { id: 'chill', name: 'Chill', hp: 1, spawn: 1, damage: 1, loot: 1 },
+  { id: 'normal', name: 'Normal', hp: 1.5, spawn: 1.25, damage: 1.2, loot: 1.3 },
+  { id: 'heroic', name: 'Heroic', hp: 2.3, spawn: 1.5, damage: 1.45, loot: 1.6 },
+  { id: 'legendary', name: 'Legendary', hp: 3.3, spawn: 1.8, damage: 1.7, loot: 2 },
 ];
+
+/** Tiers open without winning anything, and the tier picked by default. */
+export const OPEN_TIERS = 1;
+export const DEFAULT_TIER = 1;
 
 export type HeroKind = 'noob' | 'archer' | 'knight' | 'sweat' | 'healer' | 'rogue' | 'champion';
 
@@ -104,7 +111,7 @@ export const HEROES: Record<HeroKind, HeroDef> = {
   noob: { label: 'Noob', hp: 9, speed: 3.2, dps: 8, radius: 0.45, scale: 1, xp: 1, body: 0x2f7dff, head: 0xffd83a, gear: 0x9aa4b1 },
   archer: {
     label: 'Archer', hp: 8, speed: 3.4, dps: 5, radius: 0.45, scale: 1, xp: 2, body: 0x2fbf5a, head: 0xffc9a0, gear: 0x8a5a2b,
-    ranged: { range: 10, cooldown: 3.4, speed: 8, damage: 3 },
+    ranged: { range: 11, cooldown: 2.8, speed: 9, damage: 4 },
   },
   knight: { label: 'Knight', hp: 34, speed: 2.4, dps: 14, radius: 0.6, scale: 1.35, xp: 3, body: 0xb8c4d6, head: 0x6c7a8f, gear: 0xe0e6ef },
   sweat: {
@@ -134,11 +141,61 @@ export const WAVES: { from: number; mix: Partial<Record<HeroKind, number>> }[] =
   { from: 360, mix: { noob: 18, archer: 22, sweat: 18, knight: 22, healer: 8, rogue: 12 } },
 ];
 
-export const CHAMPIONS: { at: number; name: string; hpMul: number; final?: boolean }[] = [
-  { at: 150, name: 'Sir Tryhard', hpMul: 1 },
-  { at: 300, name: 'xX_Clutch_Xx', hpMul: 3 },
-  { at: RUN.finalChampionAt, name: 'THE CHOSEN ONE', hpMul: 14, final: true },
+/** Champions arrive partway through a given night of the season. */
+export const CHAMPIONS: { night: number; at: number; name: string; hpMul: number; final?: boolean }[] = [
+  { night: 3, at: 50, name: 'Sir Tryhard', hpMul: 1.6 },
+  { night: 5, at: 50, name: 'xX_Clutch_Xx', hpMul: 4.5 },
+  { night: 7, at: 35, name: 'THE CHOSEN ONE', hpMul: 18, final: true },
 ];
+
+/**
+ * The season: seven nights, each a raid with a build phase before it. `duration` is seconds of raid;
+ * the last night lasts until the Chosen One falls. `tribute` is gold paid into the vault for surviving.
+ */
+export const NIGHTS: { duration: number; tribute: number }[] = [
+  { duration: 80, tribute: 15 },
+  { duration: 90, tribute: 20 },
+  { duration: 100, tribute: 25 },
+  { duration: 110, tribute: 30 },
+  { duration: 120, tribute: 35 },
+  { duration: 130, tribute: 40 },
+  { duration: Infinity, tribute: 0 },
+];
+
+/** Stars for a night: share of the vault kept through the raid. */
+export const STARS = { two: 0.9, three: 1 };
+
+export type BuildingId = 'wall' | 'spikes' | 'pad' | 'saw' | 'tower';
+
+export interface BuildingDef { name: string; icon: string; cost: number; blurb: string }
+
+export const BUILDINGS: Record<BuildingId, BuildingDef> = {
+  wall: { name: 'Wall', icon: '🧱', cost: 4, blurb: 'Heroes must walk around it' },
+  spikes: { name: 'Spike Pit', icon: '📌', cost: 10, blurb: 'Hurts and slows heroes who cross' },
+  pad: { name: 'Launch Pad', icon: '🚀', cost: 15, blurb: 'Flings heroes into each other' },
+  saw: { name: 'Saw Blade', icon: '🪚', cost: 18, blurb: 'Shreds anyone who touches it' },
+  tower: { name: 'Bone Archer', icon: '🏹', cost: 25, blurb: 'Shoots the nearest hero' },
+};
+
+/** The buildable grid around the vault, and what each building does. */
+export const CASTLE = {
+  cell: 2,
+  /** Grid spans -half..half cells on each axis. */
+  half: 12,
+  /** Nothing can be built this close to the vault or to a gate. */
+  vaultClear: 3.5,
+  gateClear: 3.5,
+  /** Buildable only inside this radius; heroes still walk the whole grid. */
+  buildRadius: 23,
+  spikeDamage: 8,
+  spikeEvery: 0.5,
+  spikeSlow: 0.5,
+  towerRange: 10,
+  towerEvery: 1.1,
+  towerDamage: 12,
+  padDamage: 8,
+  sawDamage: 12,
+};
 
 export type WeaponId = 'stomp' | 'fireball' | 'bats' | 'lava' | 'lightning' | 'minions' | 'spring' | 'saw';
 export type PassiveId = 'might' | 'haste' | 'boots' | 'heart' | 'magnet' | 'regen';

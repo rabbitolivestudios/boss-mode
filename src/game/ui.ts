@@ -1,4 +1,4 @@
-import { BOSSES, DIFFICULTIES, PASSIVES, TREASURE, WEAPONS, type BossId, type Difficulty } from './config';
+import { BOSSES, DEFAULT_TIER, DIFFICULTIES, NIGHTS, OPEN_TIERS, PASSIVES, TREASURE, WEAPONS, type BossId, type Difficulty } from './config';
 import { bossPortrait } from './bossart';
 import type { Choice, Game, Summary } from './game';
 
@@ -20,16 +20,19 @@ function loadBest(): Best {
   try {
     const raw = localStorage.getItem('boss-mode-best');
     if (raw) {
-      const saved = JSON.parse(raw) as Partial<Best>;
-      // Wins recorded before difficulty tiers existed still count as a Normal win.
-      return { time: 0, kills: 0, combo: 0, wins: 0, ...saved, unlocked: saved.unlocked ?? (saved.wins ? 1 : 0) };
+      const saved = JSON.parse(raw) as Partial<Best> & { ladder?: number };
+      // Saves from before the ladder moved up one step (Chill was inserted at the bottom) shift by one;
+      // a win recorded before tiers existed at all counts as a win on the old Normal.
+      const old = saved.unlocked ?? (saved.wins ? 1 : 0);
+      const unlocked = saved.ladder === 2 ? old : old + 1;
+      return { time: 0, kills: 0, combo: 0, wins: 0, ...saved, unlocked: Math.max(OPEN_TIERS, unlocked) };
     }
   } catch { /* storage can be blocked; bests are a nicety */ }
-  return { time: 0, kills: 0, combo: 0, wins: 0, unlocked: 0 };
+  return { time: 0, kills: 0, combo: 0, wins: 0, unlocked: OPEN_TIERS };
 }
 
 function saveBest(b: Best): void {
-  try { localStorage.setItem('boss-mode-best', JSON.stringify(b)); } catch { /* ignore */ }
+  try { localStorage.setItem('boss-mode-best', JSON.stringify({ ...b, ladder: 2 })); } catch { /* ignore */ }
 }
 
 export class Ui {
@@ -38,7 +41,7 @@ export class Ui {
   private comboTimer = 0;
   private portraits = new Map<BossId, HTMLCanvasElement>();
   /** The difficulty picked on the title screen. */
-  difficulty: Difficulty = DIFFICULTIES[0];
+  difficulty: Difficulty = DIFFICULTIES[DEFAULT_TIER];
 
   showTitle(onPick: (b: BossId) => void): void {
     $('hud').classList.add('hidden');
@@ -67,7 +70,7 @@ export class Ui {
   private drawDifficulty(unlocked: number): void {
     const box = $('difficulty');
     box.innerHTML = '';
-    if (DIFFICULTIES.indexOf(this.difficulty) > unlocked) this.difficulty = DIFFICULTIES[0];
+    if (DIFFICULTIES.indexOf(this.difficulty) > unlocked) this.difficulty = DIFFICULTIES[DEFAULT_TIER];
     DIFFICULTIES.forEach((d, i) => {
       const btn = document.createElement('button');
       const locked = i > unlocked;
@@ -80,6 +83,10 @@ export class Ui {
     });
     const next = DIFFICULTIES[unlocked + 1];
     $('difficulty-hint').textContent = next ? `Win on ${DIFFICULTIES[unlocked].name} to unlock ${next.name}` : 'Every difficulty unlocked!';
+  }
+
+  hud(show: boolean): void {
+    $('hud').classList.toggle('hidden', !show);
   }
 
   startRun(): void {
@@ -129,7 +136,7 @@ export class Ui {
     $('lvl').textContent = `LV ${g.level}`;
     $('hpfill').style.width = `${Math.max(0, (g.hp / g.maxHp) * 100)}%`;
     $('hptext').textContent = `${Math.max(0, Math.ceil(g.hp))} / ${Math.round(g.maxHp)}`;
-    $('timer').textContent = fmt(g.time);
+    $('timer').textContent = g.night === NIGHTS.length - 1 ? `NIGHT ${g.night + 1}` : `NIGHT ${g.night + 1} · ${fmt(g.nightLeft())}`;
     $('vaultfill').style.width = `${Math.min(100, (g.treasure / TREASURE.start) * 100)}%`;
     $('vaulttext').textContent = `💰 ${g.treasure}`;
     const thieves = g.heroes.some((h) => h.alive && h.carry > 0);
@@ -180,6 +187,10 @@ export class Ui {
     });
   }
 
+  clearBanner(): void {
+    $('banner').classList.remove('show');
+  }
+
   banner(title: string, sub: string): void {
     const b = $('banner');
     $('banner-title').textContent = title;
@@ -215,7 +226,7 @@ export class Ui {
     $('pause').classList.toggle('hidden', !show);
   }
 
-  end(s: Summary, onAgain: () => void): void {
+  end(s: Summary, onAgain: () => void, onRetry?: () => void): void {
     $('levelup').classList.add('hidden');
     const boss = BOSSES[s.boss];
     $('end-title').textContent = s.win ? 'VICTORY!' : s.reason === 'vault' ? 'ROBBED!' : 'DEFEATED!';
@@ -242,5 +253,8 @@ export class Ui {
     });
     $('end').classList.remove('hidden');
     $('btn-again').onclick = onAgain;
+    const retry = $('btn-retry');
+    retry.hidden = !onRetry;
+    if (onRetry) retry.onclick = onRetry;
   }
 }

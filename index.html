@@ -39,11 +39,29 @@
       <button id="roar"><div id="ragefill"></div><span>ROAR</span></button>
     </div>
 
+    <div id="buildbar" class="hidden">
+      <div id="build-top"><span id="build-title">NIGHT 1</span><span id="build-gold">💰 100</span></div>
+      <div id="build-msg"></div>
+      <div id="build-bottom">
+        <div id="tools"></div>
+        <button class="big" id="btn-raid">START NIGHT 1 ▶</button>
+      </div>
+    </div>
+
+    <div id="dawn" class="screen hidden">
+      <h2 id="dawn-title">NIGHT 1 SURVIVED!</h2>
+      <div id="dawn-stars">⭐⭐⭐</div>
+      <div id="dawn-stats" class="stats"></div>
+      <p id="dawn-hint" class="hint"></p>
+      <button class="big" id="btn-next">Build ▶</button>
+    </div>
+
     <div id="banner"><div id="banner-title"></div><div id="banner-sub"></div></div>
 
     <div id="title" class="screen">
       <h1>BOSS<span>MODE</span></h1>
       <p class="tag-line">For once, <b>YOU</b> are the final boss.<br />The heroes are coming to steal your treasure.</p>
+      <button class="big" id="btn-continue" hidden>Continue</button>
       <div id="boss-pick"></div>
       <div id="difficulty"></div>
       <p id="difficulty-hint" class="hint"></p>
@@ -66,7 +84,8 @@
       <h2 id="end-title"></h2>
       <p id="end-sub"></p>
       <div id="end-stats"></div>
-      <button class="big" id="btn-again">Play again</button>
+      <button class="big" id="btn-retry" hidden>Retry this night</button>
+      <button class="big ghost" id="btn-again">New season</button>
     </div>
 
     <script type="module" src="/src/main.ts"></script>

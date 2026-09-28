@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import {
-  BOSSES, CHAMPIONS, DIFFICULTIES, HEROES, MAX_LEVEL, MINION, PASSIVES, PHYSICS, RUN, TRAPS, TREASURE, WAVES, WEAPONS, XP, xpToNext,
-  type BossId, type Difficulty, type HeroDef, type HeroKind, type PassiveId, type WeaponId,
+  BOSSES, BUILDINGS, CASTLE, CHAMPIONS, DEFAULT_TIER, DIFFICULTIES, HEROES, MAX_LEVEL, MINION, NIGHTS, PASSIVES, PHYSICS, RUN, STARS, TRAPS, TREASURE, WAVES, WEAPONS, XP, xpToNext,
+  type BossId, type BuildingId, type Difficulty, type HeroDef, type HeroKind, type PassiveId, type WeaponId,
 } from './config';
 import { Fx } from './fx';
 import { buildBoss, instanced, toon, type BossModel } from './models';
@@ -9,6 +9,8 @@ import { gamerTag } from './names';
 import { BOSS_PARTS, bossAtlas, type Face } from './bossart';
 import { CAST, castAtlas, castFor } from './cast';
 import { CHAMPION_LINES, Chatter, LINES, pick } from './chatter';
+import { Castle } from './castle';
+import { castleAtlas, castleCell } from './castleart';
 import { lootAtlas, lootCell } from './lootart';
 import { SpriteBatch } from './paper';
 import { BossRig, PuppetRig, type Action } from './puppet';
@@ -26,7 +28,7 @@ export interface Hero {
   /** Current puppet action (sword swing, bow shot, staff raise), its seconds left and length, and the hit reaction timer. */
   action: Action; actT: number; actDur: number; hitT: number;
   /** 'loot' heroes ignore the boss and go for the vault; `carry` is the gold in their sack. */
-  goal: 'boss' | 'loot'; carry: number; grabT: number;
+  goal: 'boss' | 'loot'; carry: number; grabT: number; slowT: number;
 }
 /** Gold knocked out of a thief's sack: it bounces, then flies home to the vault. */
 interface Spill { x: number; z: number; y: number; vx: number; vz: number; vy: number; t: number; sx: number; sz: number }
@@ -58,6 +60,21 @@ export interface GameHooks {
   killfeed(text: string): void;
   roar(): void;
   combo(n: number): void;
+  /** A night's build phase has begun. */
+  build(night: number): void;
+  /** A night was survived. */
+  dawn(report: NightReport): void;
+}
+
+export interface NightReport { night: number; kills: number; stolen: number; recovered: number; tribute: number; stars: number; treasure: number }
+
+/** Everything needed to replay a night from its build phase, or to continue a season later. */
+export interface SeasonSave {
+  boss: BossId; difficulty: string; night: number; treasure: number; time: number;
+  buildings: [BuildingId, number, number][];
+  level: number; xp: number; weapons: [WeaponId, number][]; passives: [PassiveId, number][];
+  kills: number; stolen: number; championsBeaten: number; bestCombo: number;
+  nextSquad: number; nextHeist: number; escapes: Escape[];
 }
 
 const CELL = 2;
@@ -71,7 +88,7 @@ const MAX_TRAPS = 12;
 export class Game {
   readonly fx: Fx;
   bossId: BossId = 'dragon';
-  difficulty: Difficulty = DIFFICULTIES[0];
+  difficulty: Difficulty = DIFFICULTIES[DEFAULT_TIER];
   private model: BossModel | null = null;
   private bossShadow: THREE.Mesh;
 
@@ -108,6 +125,16 @@ export class Game {
   private spills: Spill[] = [];
   private warnedThief = false;
   private nextHeist: number = TREASURE.heistFirst;
+  // Season state
+  readonly castle: Castle;
+  phase: 'title' | 'build' | 'raid' | 'dawn' | 'over' = 'title';
+  night = 0;
+  nightTime = 0;
+  private nightKills = 0;
+  private nightStolen = 0;
+  private nightRecovered = 0;
+  private nightStartGold = 0;
+  save: SeasonSave | null = null;
   /** Damage taken by source, for tuning. */
   taken = { contact: 0, arrows: 0, champion: 0 };
   private comboT = 0;
@@ -118,7 +145,10 @@ export class Game {
   // Meshes
   private hBody; private hHead; private hGear; private hLegL; private hLegR; private shadows;
   private mFire; private mArrow; private mGem; private mBat; private mLava; private mGob; private mGobHead; private mSpring; private mSpringTop; private mSaw; private mSnack; private mVacuum; private chestMesh: THREE.Group;
-  private paper: { heroes: SpriteBatch; rig: PuppetRig; boss: SpriteBatch; bossRig: BossRig; loot: SpriteBatch; corpses: Corpse[] } | null = null;
+  private paper: { heroes: SpriteBatch; rig: PuppetRig; boss: SpriteBatch; bossRig: BossRig; loot: SpriteBatch; castle: SpriteBatch; corpses: Corpse[] } | null = null;
+  private gridMesh: THREE.InstancedMesh;
+  /** Cell under the pointer during the build phase, and whether the current tool may go there. */
+  hover: { cx: number; cz: number; ok: boolean } | null = null;
   private bossActT = 0;
   private walkBlend = 0;
   private chatter: Chatter;
@@ -140,8 +170,17 @@ export class Game {
       const a = (i / TREASURE.gates) * Math.PI * 2 + Math.PI / 4;
       this.gates.push({ x: Math.cos(a) * TREASURE.gateRadius, z: Math.sin(a) * TREASURE.gateRadius });
     }
+    this.castle = new Castle(this.gates);
+    // Build-phase grid: one flat tile per cell, tinted by what can be built there.
+    const tile = new THREE.PlaneGeometry(CASTLE.cell * 0.92, CASTLE.cell * 0.92);
+    tile.rotateX(-Math.PI / 2);
+    this.gridMesh = new THREE.InstancedMesh(tile, new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.28, depthWrite: false }), this.castle.size * this.castle.size);
+    this.gridMesh.frustumCulled = false;
+    this.gridMesh.visible = false;
+    world.scene.add(this.gridMesh);
     // Keep scenery off the vault and out of the gateways.
-    world.keepClear = [{ x: 0, z: 0, r: 6 }, ...this.gates.map((g) => ({ x: g.x, z: g.z, r: 4.5 }))];
+    // The whole castle is kept clear so buildings never hide behind trees.
+    world.keepClear = [{ x: 0, z: 0, r: CASTLE.buildRadius + 1.5 }, ...this.gates.map((g) => ({ x: g.x, z: g.z, r: 4.5 }))];
     const cap = RUN.maxHeroes + 4;
     // The diorama is lit like a painted map, so its figures use matte shading instead of cartoon bands.
     const white = () => (world.style === 'diorama' ? new THREE.MeshLambertMaterial({ color: 0xffffff }) : toon(0xffffff));
@@ -192,9 +231,10 @@ export class Game {
         boss: bossBatch,
         bossRig: new BossRig(bossBatch, ba),
         loot: (() => { const la = lootAtlas(); return new SpriteBatch(la.tex, la.cols, la.rows, RUN.maxHeroes + 260, world.standeeTilt); })(),
+        castle: (() => { const ca = castleAtlas(); return new SpriteBatch(ca.tex, ca.cols, ca.rows, CASTLE.half * CASTLE.half * 4, world.standeeTilt); })(),
         corpses: [],
       };
-      scene.add(this.paper.heroes.mesh, this.paper.boss.mesh, this.paper.loot.mesh);
+      scene.add(this.paper.castle.mesh, this.paper.heroes.mesh, this.paper.boss.mesh, this.paper.loot.mesh);
       for (const m of [this.hBody, this.hHead, this.hGear, this.hLegL, this.hLegR, this.mGob, this.mGobHead]) m.visible = false;
     }
     if (world.shadows) {
@@ -218,7 +258,7 @@ export class Game {
     }
   }
 
-  start(boss: BossId, difficulty: Difficulty = DIFFICULTIES[0]): void {
+  start(boss: BossId, difficulty: Difficulty = DIFFICULTIES[DEFAULT_TIER]): void {
     this.difficulty = difficulty;
     this.reset();
     this.bossId = boss;
@@ -233,8 +273,136 @@ export class Game {
     this.weapons.set(def.start, { level: 1, cd: 0.5 });
     this.recalc();
     this.hp = this.maxHp;
+    this.castle.clear();
+    this.night = 0;
+    this.enterBuild();
+  }
+
+  // ---------- Season ----------
+
+  /** Clears the arena between nights; the boss keeps its level, powers and castle. */
+  private clearRaid(): void {
+    for (const h of this.heroes) this.dropExtras(h);
+    this.heroes = []; this.champions = []; this.shots = []; this.gems = []; this.lava = []; this.minions = [];
+    this.traps = this.traps.filter(() => false);
+    this.spills = []; this.chest = null; this.chestMesh.visible = false;
+    if (this.paper) this.paper.corpses = [];
+    this.combo = 0; this.comboT = 0; this.frenzy = 0; this.hurt = 0; this.ouch = 0;
+    this.fx.clear();
+    this.chatter.clear();
+  }
+
+  private enterBuild(): void {
+    this.clearRaid();
+    this.phase = 'build';
+    this.running = false;
+    this.x = 4.5; this.z = 0.5;
+    this.hp = this.maxHp;
+    this.save = this.snapshot();
+    this.hooks.build(this.night);
+  }
+
+  startRaid(): void {
+    if (this.phase !== 'build') return;
+    this.phase = 'raid';
     this.running = true;
-    this.hooks.banner(`Guard your treasure, ${def.name}!`, 'Heroes are coming through the gates to steal your gold');
+    this.hover = null;
+    this.nightTime = 0; this.nightKills = 0; this.nightStolen = 0; this.nightRecovered = 0;
+    this.nightStartGold = this.treasure;
+    const last = this.night === NIGHTS.length - 1;
+    this.hooks.banner(`NIGHT ${this.night + 1}${last ? ': THE FINAL RAID' : ''}`, last ? 'The Chosen One is coming for your treasure' : 'Guard the vault until sunrise!');
+    sfx.horn();
+  }
+
+  /** Sunrise: surviving heroes flee, gold still in sacks drops back into the vault, tribute is paid. */
+  private dawn(): void {
+    let returned = 0;
+    for (const h of this.heroes) returned += h.carry;
+    returned += this.spills.length;
+    this.treasure += returned;
+    this.nightRecovered += returned;
+    const tribute = NIGHTS[this.night].tribute;
+    this.treasure += tribute;
+    const kept = this.nightStartGold > 0 ? (this.nightStartGold - this.nightStolen) / this.nightStartGold : 1;
+    const stars = kept >= STARS.three ? 3 : kept >= STARS.two ? 2 : 1;
+    this.phase = 'dawn';
+    this.running = false;
+    this.clearRaid();
+    sfx.win();
+    this.hooks.dawn({ night: this.night, kills: this.nightKills, stolen: this.nightStolen, recovered: this.nightRecovered, tribute, stars, treasure: this.treasure });
+  }
+
+  nextNight(): void {
+    if (this.phase !== 'dawn') return;
+    this.night++;
+    this.enterBuild();
+  }
+
+  /** Replays the current night from its build phase. */
+  retryNight(): void {
+    if (this.save) this.restore(this.save);
+  }
+
+  nightLeft(): number {
+    return Math.max(0, NIGHTS[this.night].duration - this.nightTime);
+  }
+
+  // ---------- Building ----------
+
+  canBuild(cx: number, cz: number, id: BuildingId): string | null {
+    // The vault always keeps at least one coin, so building can never lose the game on its own.
+    if (this.treasure - BUILDINGS[id].cost < 1) return 'Not enough gold';
+    return this.castle.whyNot(cx, cz, id);
+  }
+
+  build(cx: number, cz: number, id: BuildingId): string | null {
+    if (this.phase !== 'build') return 'Build between nights';
+    const why = this.canBuild(cx, cz, id);
+    if (why) return why;
+    this.castle.place(cx, cz, id);
+    this.treasure -= BUILDINGS[id].cost;
+    sfx.coin();
+    const [x, z] = this.castle.center(cx, cz);
+    this.fx.burst(x, 0.5, z, 0xc08a4c, 8, 4, 0.18);
+    return null;
+  }
+
+  /** Selling during the build phase refunds the full price, so experimenting is free. */
+  sell(cx: number, cz: number): boolean {
+    if (this.phase !== 'build') return false;
+    const b = this.castle.at(cx, cz);
+    if (!b) return false;
+    this.castle.remove(b);
+    this.treasure += BUILDINGS[b.id].cost;
+    sfx.pop();
+    return true;
+  }
+
+  private snapshot(): SeasonSave {
+    return {
+      boss: this.bossId, difficulty: this.difficulty.id, night: this.night, treasure: this.treasure, time: this.time,
+      buildings: this.castle.buildings.map((b) => [b.id, b.cx, b.cz]),
+      level: this.level, xp: this.xp, weapons: [...this.weapons].map(([id, w]) => [id, w.level]), passives: [...this.passives],
+      kills: this.kills, stolen: this.stolen, championsBeaten: this.championsBeaten, bestCombo: this.bestCombo,
+      nextSquad: this.nextSquad, nextHeist: this.nextHeist, escapes: [...this.escapes],
+    };
+  }
+
+  /** Rebuilds a season from a save: used for "retry night" and for continuing a saved season. */
+  restore(sv: SeasonSave): void {
+    this.start(sv.boss, DIFFICULTIES.find((d) => d.id === sv.difficulty) ?? DIFFICULTIES[DEFAULT_TIER]);
+    this.weapons.clear();
+    for (const [id, lv] of sv.weapons) this.weapons.set(id, { level: lv, cd: 0.5 });
+    this.passives = new Map(sv.passives);
+    this.recalc();
+    this.level = sv.level; this.xp = sv.xp; this.xpNeed = xpToNext(sv.level);
+    this.treasure = sv.treasure; this.time = sv.time; this.night = sv.night;
+    this.kills = sv.kills; this.stolen = sv.stolen; this.championsBeaten = sv.championsBeaten; this.bestCombo = sv.bestCombo;
+    this.nextSquad = sv.nextSquad; this.nextHeist = sv.nextHeist; this.escapes = [...sv.escapes];
+    this.nextChampion = CHAMPIONS.filter((c) => c.night - 1 < sv.night).length;
+    this.castle.clear();
+    for (const [id, cx, cz] of sv.buildings) this.castle.place(cx, cz, id);
+    this.enterBuild();
   }
 
   private reset(): void {
@@ -321,8 +489,10 @@ export class Game {
   // ---------- Main update ----------
 
   update(dt: number, move: { x: number; z: number }): void {
-    if (!this.running || this.paused || this.choosing) return;
+    if (this.phase !== 'raid' || !this.running || this.paused || this.choosing) return;
     this.time += dt;
+    this.nightTime += dt;
+    this.castle.trackBoss(this.x, this.z);
     this.hurt = Math.max(0, this.hurt - dt);
     this.frenzy = Math.max(0, this.frenzy - dt);
     this.feedCd -= dt;
@@ -362,7 +532,9 @@ export class Game {
     this.updateMinions(dt);
     this.updateGems(dt);
     this.updateSpills(dt);
+    this.updateBuildings(dt);
     this.heroes = this.heroes.filter((h) => h.alive);
+    if (this.running && this.nightTime >= NIGHTS[this.night].duration) { this.dawn(); return; }
 
     if (this.hp <= 0) this.finish(false, 'hp');
     else if (this.treasure <= 0 && this.spills.length === 0 && !this.heroes.some((h) => h.carry > 0)) this.finish(false, 'vault');
@@ -375,6 +547,7 @@ export class Game {
 
   private finish(win: boolean, reason: Summary['reason']): void {
     this.running = false;
+    this.phase = 'over';
     if (win) sfx.win(); else sfx.lose();
     this.hooks.end({
       difficulty: this.difficulty, win, reason, time: this.time, kills: this.kills, level: this.level, boss: this.bossId, champions: this.championsBeaten,
@@ -422,7 +595,7 @@ export class Game {
   private spawn(dt: number): void {
     const t = this.time;
     const champ = CHAMPIONS[this.nextChampion];
-    if (champ && t >= champ.at) {
+    if (champ && champ.night - 1 === this.night && this.nightTime >= champ.at) {
       this.nextChampion++;
       const h = this.makeHero('champion');
       h.hp = h.maxHp = HEROES.champion.hp * champ.hpMul * this.difficulty.hp;
@@ -512,7 +685,7 @@ export class Game {
       variant: Math.random() < 0.5 ? 0 : 1, champ: 0, turn: x < this.x ? 1 : -1,
       action: kind === 'archer' ? 'shoot' : kind === 'healer' ? 'raise' : 'swing', actT: 0, actDur: 0.4, hitT: 0,
       goal: kind === 'rogue' ? 'loot' : kind !== 'champion' && Math.random() < this.lootShare() ? 'loot' : 'boss',
-      carry: 0, grabT: 0,
+      carry: 0, grabT: 0, slowT: 0,
     };
     // A few regular heroes wear visible gamer tags so the crowd reads as "other players".
     if (kind !== 'champion' && this.labels < MAX_LABELS && Math.random() < 0.06) {
@@ -567,6 +740,9 @@ export class Game {
 
       let speed = def.speed;
       let mx = dx, mz = dz;
+      // Beyond arm's reach, heroes follow the castle's walkable path to the boss instead of walking into walls.
+      if (d > 3) { const st = this.castle.steer('boss', h.x, h.z); if (st) { mx = st[0]; mz = st[1]; } }
+      if (h.slowT > 0) { h.slowT -= dt; speed *= CASTLE.spikeSlow; }
       if (def.dash) {
         h.dashCd -= dt;
         if (h.dashCd <= 0 && d < 14) { h.dashT = def.dash.duration; h.dashCd = def.dash.cooldown * (0.8 + Math.random() * 0.4); }
@@ -600,8 +776,10 @@ export class Game {
       }
 
       h.phase += dt * speed * 2.2;
+      const px = h.x, pz = h.z;
       h.x += (mx * speed + h.kx) * dt;
       h.z += (mz * speed + h.kz) * dt;
+      [h.x, h.z] = this.castle.collide(h.x, h.z, px, pz);
       h.kx *= decay; h.kz *= decay;
 
       // Crowd separation keeps the horde reading as a crowd rather than one blob.
@@ -646,6 +824,8 @@ export class Game {
     let dx = tx - h.x, dz = tz - h.z;
     const d = Math.hypot(dx, dz) || 0.001;
     dx /= d; dz /= d;
+    const st = this.castle.steer(h.carry === 0 ? 'vault' : 'gates', h.x, h.z);
+    if (st && d > 1.5) { dx = st[0]; dz = st[1]; }
     h.face = Math.atan2(dx, dz);
     if (Math.abs(dx) > 0.2) h.turn = approach(h.turn, Math.sign(dx), dt * 6);
 
@@ -665,10 +845,13 @@ export class Game {
       this.escape(h);
       return true;
     } else {
-      const speed = h.def.speed * (h.carry > 0 ? TREASURE.thiefSpeed : 1);
+      let speed = h.def.speed * (h.carry > 0 ? TREASURE.thiefSpeed : 1);
+      if (h.slowT > 0) { h.slowT -= dt; speed *= CASTLE.spikeSlow; }
       h.phase += dt * speed * 2.2;
+      const px = h.x, pz = h.z;
       h.x += (dx * speed + h.kx) * dt;
       h.z += (dz * speed + h.kz) * dt;
+      [h.x, h.z] = this.castle.collide(h.x, h.z, px, pz);
     }
     h.kx *= decay; h.kz *= decay;
     this.near(h.x, h.z, h.def.radius, (o, ox, oz, od) => {
@@ -687,6 +870,7 @@ export class Game {
   private escape(h: Hero): void {
     h.alive = false;
     this.stolen += h.carry;
+    this.nightStolen += h.carry;
     const tag = h.tag ?? gamerTag();
     this.escapes.push({ tag, gold: h.carry, kind: h.kind });
     this.hooks.killfeed(`💰 ${tag} escaped with ${h.carry} gold!`);
@@ -771,6 +955,7 @@ export class Game {
   private kill(h: Hero): void {
     h.alive = false;
     this.kills++;
+    this.nightKills++;
     this.rage = Math.min(RUN.rageMax, this.rage + 1);
     this.fx.burst(h.x, 0.8, h.z, h.def.body, 8, 6);
     this.fx.burst(h.x, 1.2, h.z, h.def.head, 4, 5);
@@ -826,8 +1011,11 @@ export class Game {
   private fly(h: Hero, dt: number): void {
     h.vy -= PHYSICS.gravity * dt;
     h.y += h.vy * dt;
+    const px = h.x, pz = h.z;
     h.x += h.kx * dt;
     h.z += h.kz * dt;
+    // High flyers sail over walls; low ones bounce off them.
+    if (h.y < 1.2) [h.x, h.z] = this.castle.collide(h.x, h.z, px, pz);
     h.spin += dt * 14;
     const speed = Math.hypot(h.kx, h.kz);
     if (h.y < 2.5 && speed > 3) {
@@ -1049,6 +1237,62 @@ export class Game {
     }
   }
 
+  private updateBuildings(dt: number): void {
+    for (const b of this.castle.buildings) {
+      b.cd -= dt;
+      b.bounce = Math.max(0, b.bounce - dt * 4);
+      const [x, z] = this.castle.center(b.cx, b.cz);
+      switch (b.id) {
+        case 'spikes':
+          this.near(x, z, CASTLE.cell * 0.55, (h) => {
+            if (h.air) return;
+            h.slowT = 0.3;
+            if (h.trapCd > 0) return;
+            h.trapCd = CASTLE.spikeEvery;
+            this.damage(h, CASTLE.spikeDamage);
+          });
+          break;
+        case 'pad':
+          this.near(x, z, 0.9, (h) => {
+            if (h.air || h.kind === 'champion' || h.trapCd > 0) return;
+            h.trapCd = 0.5;
+            // Castle pads throw heroes back toward the gates, through whoever is following them in.
+            let dx = h.x, dz = h.z;
+            const d = Math.hypot(dx, dz) || 1;
+            dx /= d; dz /= d;
+            h.kx = dx * TRAPS.springPower; h.kz = dz * TRAPS.springPower;
+            this.launch(h, 6);
+            b.bounce = 1;
+            this.damage(h, CASTLE.padDamage);
+          });
+          break;
+        case 'saw':
+          this.near(x, z, TRAPS.sawRadius, (h, dx, dz, d) => {
+            if (h.trapCd > 0) return;
+            h.trapCd = TRAPS.sawHitEvery;
+            const n = d || 1;
+            this.damage(h, CASTLE.sawDamage, (-dz / n) * 8 + (dx / n) * 3, (dx / n) * 8 + (dz / n) * 3);
+            this.fx.burst(h.x, 0.6, h.z, 0xfff27a, 3, 4, 0.12);
+          });
+          break;
+        case 'tower': {
+          if (b.cd > 0) break;
+          let target: Hero | null = null;
+          let best = Infinity;
+          this.near(x, z, CASTLE.towerRange, (h, _dx, _dz, d) => { if (!h.air && d < best) { best = d; target = h; } });
+          const t = target as Hero | null;
+          if (!t || this.shots.length >= MAX_SHOTS) break;
+          b.cd = CASTLE.towerEvery;
+          const dx = t.x - x, dz = t.z - z, len = Math.hypot(dx, dz) || 1;
+          this.shots.push({ x, z, vx: (dx / len) * 18, vz: (dz / len) * 18, life: 0.9, dmg: CASTLE.towerDamage, pierce: 1, hit: new Set(), enemy: false });
+          break;
+        }
+        default:
+          break;
+      }
+    }
+  }
+
   private updateShots(dt: number): void {
     for (let i = this.shots.length - 1; i >= 0; i--) {
       const s = this.shots[i];
@@ -1130,7 +1374,8 @@ export class Game {
       this.chestMesh.visible = false;
       this.hp = Math.min(this.maxHp, this.hp + this.maxHp * 0.3);
       this.pendingLevels += 2;
-      this.hooks.banner('TREASURE!', '+2 upgrades and a big snack');
+      this.treasure += 25;
+      this.hooks.banner('TREASURE!', '+25 gold, +2 upgrades and a big snack');
     }
   }
 
@@ -1290,6 +1535,18 @@ export class Game {
         this.mSaw.setMatrixAt(sw++, this.tmp.matrix);
       }
     }
+    for (const b of this.castle.buildings) {
+      const [bx, bz] = this.castle.center(b.cx, b.cz);
+      if (b.id === 'pad') {
+        this.tmp.position.set(bx, 0.1, bz); this.tmp.rotation.set(0, 0, 0); this.tmp.scale.setScalar(1); this.tmp.updateMatrix();
+        this.mSpring.setMatrixAt(sp, this.tmp.matrix);
+        this.tmp.position.y = 0.25 + b.bounce * 0.6; this.tmp.updateMatrix();
+        this.mSpringTop.setMatrixAt(sp++, this.tmp.matrix);
+      } else if (b.id === 'saw') {
+        this.tmp.position.set(bx, TRAPS.sawRadius * 0.6, bz); this.tmp.rotation.set(t * 18, 0, Math.PI / 2); this.tmp.scale.setScalar(1); this.tmp.updateMatrix();
+        this.mSaw.setMatrixAt(sw++, this.tmp.matrix);
+      }
+    }
     this.mSpring.count = this.mSpringTop.count = sp;
     this.mSaw.count = sw;
     this.mSpring.instanceMatrix.needsUpdate = this.mSpringTop.instanceMatrix.needsUpdate = this.mSaw.instanceMatrix.needsUpdate = true;
@@ -1351,6 +1608,18 @@ export class Game {
     });
     p.boss.end();
 
+    // Castle: walls and towers stand up; spike pits lie flat on the ground.
+    p.castle.begin();
+    const flat = Math.PI / 2 - this.world.standeeTilt;
+    for (const b of this.castle.buildings) {
+      const [bx, bz] = this.castle.center(b.cx, b.cz);
+      if (b.id === 'wall') p.castle.push({ x: bx, y: 0, z: bz, w: 2.3, h: 2.3, cell: castleCell('wall'), face: 1 });
+      else if (b.id === 'tower') p.castle.push({ x: bx, y: 0, z: bz, w: 3.2, h: 3.2, cell: castleCell('tower'), face: 1 });
+      else if (b.id === 'spikes') p.castle.push({ x: bx, y: 0.03, z: bz + CASTLE.cell * 0.5, w: CASTLE.cell, h: CASTLE.cell, cell: castleCell('spikes'), face: 1, lean: flat });
+    }
+    p.castle.end();
+    this.drawGrid();
+
     // Treasure: gates, the vault at its fill level, sacks over thieves, and coins flying home.
     p.loot.begin();
     // Gates lean well back so the ones near the camera never wall off the view.
@@ -1365,6 +1634,30 @@ export class Game {
     }
     for (const c of this.spills) p.loot.push({ x: c.x, y: c.y - 0.3, z: c.z, w: 0.75, h: 0.75, cell: lootCell('coin'), face: Math.cos(now * 9 + c.sx), roll: 0 });
     p.loot.end();
+  }
+
+  /** Build-phase grid: faint tiles where building is allowed, and the hovered tile in green or red. */
+  private drawGrid(): void {
+    const m = this.gridMesh;
+    m.visible = this.phase === 'build';
+    if (!m.visible) return;
+    let n = 0;
+    const col = this.col;
+    for (let cz = 0; cz < this.castle.size; cz++) {
+      for (let cx = 0; cx < this.castle.size; cx++) {
+        const [x, z] = this.castle.center(cx, cz);
+        if (Math.hypot(x, z) > CASTLE.buildRadius) continue;
+        const hovered = this.hover && this.hover.cx === cx && this.hover.cz === cz;
+        if (!hovered && (this.castle.at(cx, cz) || this.castle.whyNot(cx, cz, 'spikes'))) continue;
+        this.tmp.position.set(x, 0.04, z); this.tmp.rotation.set(0, 0, 0); this.tmp.scale.setScalar(1); this.tmp.updateMatrix();
+        m.setMatrixAt(n, this.tmp.matrix);
+        m.setColorAt(n, hovered ? col.setHex(this.hover?.ok ? 0x3ee07a : 0xff3d5a) : col.setHex(0xffffff));
+        n++;
+      }
+    }
+    m.count = n;
+    m.instanceMatrix.needsUpdate = true;
+    if (m.instanceColor) m.instanceColor.needsUpdate = true;
   }
 
   private castIndex(h: Hero): number {

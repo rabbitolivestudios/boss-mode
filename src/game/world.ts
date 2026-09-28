@@ -45,6 +45,8 @@ export class World {
   zoom = 1;
   /** Areas scenery must not cover (the vault, the gateways). */
   keepClear: { x: number; z: number; r: number }[] = [];
+  /** Build phase: pull the camera up over the whole castle instead of following the boss. */
+  overview = false;
 
   constructor(canvas: HTMLCanvasElement, readonly style: StyleId) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: window.devicePixelRatio < 2, powerPreference: 'high-performance' });
@@ -251,8 +253,14 @@ export class World {
     const sx = (Math.random() - 0.5) * this.shake;
     const sz = (Math.random() - 0.5) * this.shake;
     const d = this.zoom;
-    this.camera.position.set(px + sx, this.rig.height * d, pz + this.rig.back * d + sz);
-    this.camera.lookAt(px + sx * 0.5, 0, pz - 1);
+    if (this.overview) {
+      px = 0; pz = 0;
+      this.camera.position.set(0, 38 * d, 30 * d);
+      this.camera.lookAt(0, 0, 1);
+    } else {
+      this.camera.position.set(px + sx, this.rig.height * d, pz + this.rig.back * d + sz);
+      this.camera.lookAt(px + sx * 0.5, 0, pz - 1);
+    }
 
     this.ground.position.set(px, 0, pz);
     this.groundTex.offset.set(px / this.groundTile, -pz / this.groundTile);
