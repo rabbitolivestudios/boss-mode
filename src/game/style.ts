@@ -7,8 +7,11 @@ export const STYLES: { id: StyleId; label: string }[] = [
   { id: 'classic', label: '🧱 Classic' },
 ];
 
-/** The look is chosen per page load (`?style=paper`), since each style builds a different scene. */
+/**
+ * Paper is the game's look. The other styles stay reachable by URL (`?style=classic`) as reference
+ * while the paper art matures; each builds a different scene, so the choice is per page load.
+ */
 export function currentStyle(): StyleId {
   const q = new URLSearchParams(location.search).get('style');
-  return STYLES.some((s) => s.id === q) ? (q as StyleId) : 'classic';
+  return STYLES.some((s) => s.id === q) ? (q as StyleId) : 'paper';
 }

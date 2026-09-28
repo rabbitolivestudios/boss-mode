@@ -1,5 +1,5 @@
 import { BOSSES, PASSIVES, WEAPONS, type BossId } from './config';
-import { STYLES, currentStyle } from './style';
+import { bossPortrait } from './bossart';
 import type { Choice, Game, Summary } from './game';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string): T => {
@@ -31,6 +31,7 @@ export class Ui {
   private cardKeys: ((e: KeyboardEvent) => void) | null = null;
   private lastAbilities = '';
   private comboTimer = 0;
+  private portraits = new Map<BossId, HTMLCanvasElement>();
 
   showTitle(onPick: (b: BossId) => void): void {
     $('hud').classList.add('hidden');
@@ -44,19 +45,12 @@ export class Ui {
       const btn = document.createElement('button');
       btn.className = 'boss-card';
       btn.innerHTML = `<span class="em">${b.emoji}</span><span class="nm">${b.name}</span><span class="tt">${b.title}</span><span class="st">${w.icon} ${w.name}<br>❤️ ${b.hp} · 👟 ${b.speed}</span>`;
+      const art = this.portraits.get(id) ?? bossPortrait(id);
+      this.portraits.set(id, art);
+      art.className = 'portrait';
+      btn.querySelector('.em')?.replaceWith(art);
       btn.onclick = () => onPick(id);
       pick.appendChild(btn);
-    }
-    const styles = $('style-pick');
-    styles.innerHTML = 'Art style: ';
-    for (const st of STYLES) {
-      const a = document.createElement('a');
-      const url = new URL(location.href);
-      url.searchParams.set('style', st.id);
-      a.href = url.toString();
-      a.textContent = st.label;
-      if (st.id === currentStyle()) a.className = 'on';
-      styles.appendChild(a);
     }
     const best = loadBest();
     $('best').textContent = best.kills ? `Best: ${fmt(best.time)} survived · ${best.kills} heroes · ${best.combo}x combo · ${best.wins} wins` : '';

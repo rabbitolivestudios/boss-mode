@@ -116,8 +116,15 @@ h2 { font-size: clamp(36px, 8vw, 64px); margin: 0; color: var(--gold); text-shad
   #timer { font-size: 24px; }
 }
 
-#style-pick { font-size: 14px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: center; }
-#style-pick a { color: #fff; text-decoration: none; padding: 4px 10px; border-radius: 10px; border: 3px solid var(--ink); background: #2e1f57; }
-#style-pick a.on { background: var(--gold); color: var(--ink); }
+.boss-card .portrait { width: 130px; height: 130px; display: block; margin: -18px auto -6px; filter: drop-shadow(0 4px 0 rgba(0,0,0,.35)); }
+.boss-card:hover .portrait { animation: wiggle .5s ease-in-out infinite alternate; }
+@keyframes wiggle { from { transform: rotate(-4deg) scale(1.04); } to { transform: rotate(4deg) scale(1.08); } }
+
+/* Comic speech bubbles for hero trash talk. */
+.bubble { position: absolute; left: 0; top: 0; font-size: 14px; line-height: 1.1; color: var(--ink); background: #fff; border: 3px solid var(--ink); border-radius: 14px; padding: 4px 10px; white-space: nowrap; will-change: transform; transform-origin: 50% 100%; box-shadow: 0 3px 0 rgba(0,0,0,.25); }
+.bubble::after { content: ''; position: absolute; left: 50%; bottom: -11px; width: 12px; height: 12px; margin-left: -8px; background: #fff; border-right: 3px solid var(--ink); border-bottom: 3px solid var(--ink); transform: rotate(45deg) skew(12deg, 12deg); }
+.bubble.big { font-size: 20px; background: var(--gold); padding: 6px 14px; }
+.bubble.big::after { background: var(--gold); }
+@media (max-width: 600px) { .boss-card .portrait { width: 96px; height: 96px; margin: -10px auto -4px; } }
 body.style-dungeon::after { content: ''; position: fixed; inset: 0; pointer-events: none; z-index: 3; background: radial-gradient(ellipse at center, transparent 45%, rgba(5, 2, 12, 0.75) 100%); }
 body.style-diorama::after { content: ''; position: fixed; inset: 0; pointer-events: none; z-index: 3; background: radial-gradient(ellipse at center, transparent 60%, rgba(60, 40, 10, 0.25) 100%); }

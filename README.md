@@ -30,18 +30,9 @@ npm run build:single   # also writes dist/boss-mode.html, one self-contained fil
 
 Playtest the late waves quickly with `?speed=4` in the URL.
 
-## Art styles (under evaluation)
+## Art
 
-The same game can be drawn four ways. Pick one on the title screen, or with the URL:
-
-| URL | Look |
-|---|---|
-| `?style=paper` | Paper Mario-style cutout standees on a construction-paper world |
-| `?style=dungeon` | bright Diablo: torch-lit stone, point lights, bloom on spells |
-| `?style=diorama` | Commandos-style painted map, houses and roads, real sun shadows |
-| `?style=classic` | the original low-poly toon look (default) |
-
-Only rendering changes between styles; the simulation is identical.
+The game is drawn as **animated paper puppets**: characters are drawn in code, cut into jointed paper pieces and animated every frame (see [`docs/DESIGN.md`](docs/DESIGN.md#art-direction-paper-puppets-chosen)). Earlier style experiments are still reachable for reference with `?style=classic`, `?style=dungeon` or `?style=diorama`.
 
 ## Tech
 
@@ -55,7 +46,12 @@ Only rendering changes between styles; the simulation is identical.
 | `src/game/config.ts` | every tunable number: heroes, bosses, abilities, waves, physics |
 | `src/game/game.ts` | the simulation: spawning, AI, abilities, launch physics, loot, rendering the crowd |
 | `src/game/models.ts` | the low-poly boss models, built from primitives |
-| `src/game/paper.ts` | paper style: code-drawn cutout atlases and the instanced standee renderer |
+| `src/game/cast.ts` | the hero cast, drawn in code and cut into puppet pieces |
+| `src/game/bossart.ts` | the three bosses as puppet pieces with idle, blink and ouch faces |
+| `src/game/puppet.ts` | puppet animation: walk, attacks, hit reactions, boss motion |
+| `src/game/paper.ts` | paper scenery, ground and the instanced standee renderer |
+| `src/game/ink.ts` | shared drawing kit: ink lines, paper borders, shading |
+| `src/game/chatter.ts` | hero speech bubbles |
 | `src/game/style.ts` | which art style is active |
 | `src/game/world.ts` | per-style environment: camera, lighting, endless ground and scenery |
 | `src/game/fx.ts` | particles, shockwaves, lightning, damage numbers |

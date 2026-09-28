@@ -64,7 +64,38 @@ These values were tuned against an automated kiting bot that picks upgrades at r
 
 **Safety for this audience:** no open chat, no loot boxes, no paid randomness. If it's ever monetized, only cosmetic boss skins with clear prices.
 
-## Art direction: candidates
+## Art direction: paper puppets (chosen)
+
+**Decision:** the game is drawn as **animated paper puppets**, in the spirit of Paper Mario. Four looks were built and compared in the real game (paper, bright-Diablo dungeon, Commandos diorama, low-poly classic); paper won. The others stay reachable with `?style=` as reference, but they are no longer developed.
+
+How it works:
+
+- Every character is drawn **in code** (`src/game/cast.ts`, `src/game/bossart.ts`) as flat shapes with an ink line, then **cut into puppet pieces** (cape, back arm, back leg, body, front leg, head, front arm). Each piece gets its own white paper border and a soft drop shadow.
+- The renderer (`src/game/puppet.ts`) swings each piece about its joint every frame, so motion is continuous rather than frame-by-frame:
+  - **Walk:** legs and arms swing opposite each other, the body bobs on the passing pose and leans in, the head nods, capes trail.
+  - **Actions:** melee heroes wind up and chop when they reach the boss, archers raise and draw the bow, healers lift the staff, goblins club.
+  - **Reactions:** a squash and head-snap when hit, flailing limbs when launched, and a card-flip (the width passes through zero) when turning around.
+  - **Defeat:** the puppet falls back flat like a knocked-over standee and folds away in paper confetti.
+  - **Paper flutter:** a vertex-shader bend keeps heads, capes and wings from ever looking rigid.
+- **Bosses** are puppets too: the dragon's wing flaps, its tail wags and its head lunges when breathing fire; the slime squashes and stretches while its crown bounces a beat behind; the Bone Lord floats, its cape sways and its staff rises to summon. Faces have idle, blink and "ouch" versions.
+- All pieces live in one texture atlas and one instanced mesh per group, so hundreds of heroes (about seven pieces each) stay a couple of draw calls.
+
+## The cast
+
+| Hero | Look | Personality |
+|---|---|---|
+| **Noob** | yellow head, default shirt, tiny sword | cheerful and clueless; the crowd |
+| **Archer** | hood with a feather, quiver, longbow | smug, keeps her distance |
+| **Knight** | plumed great-helm, crest shield | slow, stubborn, hard to knock over |
+| **Tryhard** | gamer headset, hoodie, glowing blade, sweat drops | gritted teeth, dashes at you |
+| **Healer** | tall hat, robe, leafy glowing staff | serene, keeps everyone topped up |
+| **Goblin** (yours) | big ears, fangs, spiked club | happy to help |
+
+Every hero class has two outfits so crowds look varied. The three champions each have a unique design: **Sir Tryhard** (gold armour, blue cape, moustache, big sword), **xX_Clutch_Xx** (esports jersey #1, shades, backwards cap, energy hammer) and **THE CHOSEN ONE** (spiky golden hair, red scarf, glowing legendary sword).
+
+Heroes talk like players in a lobby, in comic speech bubbles: taunts ("1v1 me bro", "trust me im pro"), yelps when launched ("wheee!", "LAG!!"), last words ("gg", "nerf boss"), and a line for each champion entrance. All lines are kid-safe.
+
+## Art direction: candidates (historical)
 
 Four looks are implemented behind `?style=` so they can be compared in the real game (see the README). None is chosen yet.
 

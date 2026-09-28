@@ -6,7 +6,11 @@ import {
 import { Fx } from './fx';
 import { buildBoss, instanced, toon, type BossModel } from './models';
 import { gamerTag } from './names';
-import { SPRITE_KINDS, SpriteBatch, bossAtlas, heroAtlas } from './paper';
+import { BOSS_PARTS, bossAtlas, type Face } from './bossart';
+import { CAST, castAtlas, castFor } from './cast';
+import { CHAMPION_LINES, Chatter, LINES, pick } from './chatter';
+import { SpriteBatch } from './paper';
+import { BossRig, PuppetRig, type Action } from './puppet';
 import { sfx } from './sfx';
 import type { World } from './world';
 
@@ -16,12 +20,23 @@ export interface Hero {
   alive: boolean; batCd: number; trapCd: number; tag: string | null; label: HTMLDivElement | null; final: boolean; aura: THREE.Mesh | null;
   /** Airborne heroes are physics projectiles: no AI, and they bowl over whoever they land on. */
   y: number; vy: number; air: boolean; spin: number;
+  /** Outfit variant, champion index, and the -1..1 facing used for the card-flip turn. */
+  variant: number; champ: number; turn: number;
+  /** Current puppet action (sword swing, bow shot, staff raise), its seconds left and length, and the hit reaction timer. */
+  action: Action; actT: number; actDur: number; hitT: number;
+}
+/** A defeated paper hero folding flat before it disappears. */
+interface Corpse { x: number; z: number; y: number; cast: number; face: number; size: number; born: number; spin: number; seed: number }
+
+/** Moves toward a target at a fixed rate, so a flip from -1 to 1 passes through 0 (edge-on) visibly. */
+function approach(v: number, target: number, step: number): number {
+  return v < target ? Math.min(target, v + step) : Math.max(target, v - step);
 }
 interface Trap { kind: 'spring' | 'saw'; x: number; z: number; life: number; bounce: number }
 interface Shot { x: number; z: number; vx: number; vz: number; life: number; dmg: number; pierce: number; hit: Set<Hero> | null; enemy: boolean }
 interface Gem { x: number; z: number; value: number; tier: number; pulled: boolean; spin: number; snack?: boolean; vacuum?: boolean }
 interface Lava { x: number; z: number; r: number; life: number; tick: number }
-interface Minion { x: number; z: number; hp: number; life: number; hitCd: number; face: number; phase: number }
+interface Minion { x: number; z: number; hp: number; life: number; hitCd: number; face: number; phase: number; turn?: number; actT?: number; seed?: number }
 
 export type Choice =
   | { kind: 'weapon'; id: WeaponId; level: number }
@@ -55,6 +70,7 @@ export class Game {
 
   // Boss state
   x = 0; z = 0; face = 0; hp = 100; maxHp = 100; hurt = 0; moving = false;
+  private turn = 1; private ouch = 0; private ouchCd = 0;
   speed = 5; dmgMul = 1; cdMul = 1; magnet = 1; regen = 0; radius = 1.2;
   level = 1; xp = 0; xpNeed = xpToNext(1); rage = 0; frenzy = 0;
   weapons = new Map<WeaponId, { level: number; cd: number }>();
@@ -87,7 +103,11 @@ export class Game {
   // Meshes
   private hBody; private hHead; private hGear; private hLegL; private hLegR; private shadows;
   private mFire; private mArrow; private mGem; private mBat; private mLava; private mGob; private mGobHead; private mSpring; private mSpringTop; private mSaw; private mSnack; private mVacuum; private chestMesh: THREE.Group;
-  private paper: { heroes: SpriteBatch; boss: SpriteBatch; bossCells: Record<BossId, number[]> } | null = null;
+  private paper: { heroes: SpriteBatch; rig: PuppetRig; boss: SpriteBatch; bossRig: BossRig; corpses: Corpse[] } | null = null;
+  private bossActT = 0;
+  private walkBlend = 0;
+  private chatter: Chatter;
+  private chatCd = 2;
   private bossLight: THREE.PointLight | null = null;
   private tmp = new THREE.Object3D();
   private m4 = new THREE.Matrix4();
@@ -100,6 +120,7 @@ export class Game {
   constructor(private world: World, private labelLayer: HTMLElement, private hooks: GameHooks) {
     const scene = world.scene;
     this.fx = new Fx(scene, world.camera, labelLayer);
+    this.chatter = new Chatter(labelLayer, world.camera);
     const cap = RUN.maxHeroes + 4;
     // The diorama is lit like a painted map, so its figures use matte shading instead of cartoon bands.
     const white = () => (world.style === 'diorama' ? new THREE.MeshLambertMaterial({ color: 0xffffff }) : toon(0xffffff));
@@ -139,12 +160,17 @@ export class Game {
     scene.add(this.bossShadow);
 
     if (world.style === 'paper') {
-      const ha = heroAtlas();
+      const ha = castAtlas();
       const ba = bossAtlas();
+      const bossBatch = new SpriteBatch(ba.tex, ba.cols, ba.rows, Math.max(...Object.values(BOSS_PARTS).map((ps) => ps.length)), world.standeeTilt);
+      // Seven puppet pieces per figure.
+      const heroes = new SpriteBatch(ha.tex, ha.cols, ha.rows, (cap + MAX_MINIONS + 80) * 7, world.standeeTilt);
       this.paper = {
-        heroes: new SpriteBatch(ha.tex, ha.cols, ha.rows, cap + MAX_MINIONS, world.standeeTilt),
-        boss: new SpriteBatch(ba.tex, ba.cols, ba.rows, 1, world.standeeTilt),
-        bossCells: ba.cell,
+        heroes,
+        rig: new PuppetRig(heroes, ha),
+        boss: bossBatch,
+        bossRig: new BossRig(bossBatch, ba),
+        corpses: [],
       };
       scene.add(this.paper.heroes.mesh, this.paper.boss.mesh);
       for (const m of [this.hBody, this.hHead, this.hGear, this.hLegL, this.hLegR, this.mGob, this.mGobHead]) m.visible = false;
@@ -199,7 +225,10 @@ export class Game {
     this.level = 1; this.xp = 0; this.xpNeed = xpToNext(1); this.rage = 0; this.frenzy = 0; this.hurt = 0;
     this.pendingLevels = 0; this.spawnAcc = 0; this.nextSquad = RUN.squadEvery; this.nextChampion = 0;
     this.paused = false; this.choosing = false; this.labels = 0;
+    this.turn = 1; this.ouch = 0; this.ouchCd = 0; this.chatCd = 2;
+    if (this.paper) this.paper.corpses = [];
     this.fx.clear();
+    this.chatter.clear();
   }
 
   private recalc(): void {
@@ -287,6 +316,19 @@ export class Game {
       while (diff < -Math.PI) diff += Math.PI * 2;
       this.face += diff * Math.min(1, dt * 12);
     }
+    if (move.x !== 0) this.turn = approach(this.turn, Math.sign(move.x), dt * 7);
+    this.ouch = Math.max(0, this.ouch - dt);
+    this.bossActT = Math.max(0, this.bossActT - dt);
+    this.walkBlend = approach(this.walkBlend, this.moving ? 1 : 0, dt * 5);
+    this.ouchCd -= dt;
+    this.chatter.update(dt);
+    this.chatCd -= dt;
+    if (this.chatCd <= 0) {
+      this.chatCd = 1.6 + Math.random() * 1.8;
+      // Only heroes near the boss talk, so the bubble is actually on screen.
+      const near = this.heroes.filter((h) => h.alive && !h.air && Math.hypot(h.x - this.x, h.z - this.z) < 13);
+      if (near.length) { const h = pick(near); this.chatter.say(h, pick(LINES.taunt), 2.4 * h.def.scale); }
+    }
 
     this.buildGrid();
     this.spawn(dt);
@@ -357,7 +399,9 @@ export class Game {
       h.hp = h.maxHp = HEROES.champion.hp * champ.hpMul;
       h.tag = champ.name;
       h.final = champ.final === true;
+      h.champ = this.nextChampion - 1;
       h.label = this.makeLabel(champ.name, true);
+      this.chatter.say(h, CHAMPION_LINES[h.champ] ?? CHAMPION_LINES[0], 2.4 * h.def.scale + 0.6, true);
       h.aura = new THREE.Mesh(new THREE.RingGeometry(1.4, 1.8, 32), new THREE.MeshBasicMaterial({ color: 0xffd23a, transparent: true, opacity: 0.7, side: THREE.DoubleSide }));
       h.aura.rotation.x = -Math.PI / 2;
       this.world.scene.add(h.aura);
@@ -374,7 +418,8 @@ export class Game {
       const size = Math.round(RUN.squadSize + t / RUN.squadGrowth);
       for (let i = 0; i < size && this.heroes.length < RUN.maxHeroes; i++) {
         const a = (i / size) * Math.PI * 2;
-        this.addHero(kind, this.x + Math.cos(a) * 15, this.z + Math.sin(a) * 15);
+        const h = this.addHero(kind, this.x + Math.cos(a) * 15, this.z + Math.sin(a) * 15);
+        if (i === 0) this.chatter.say(h, pick(LINES.squad), 2.4, true);
       }
     }
 
@@ -409,6 +454,8 @@ export class Game {
       dashT: 0, dashCd: Math.random() * 3, flash: 0, face: 0, phase: Math.random() * 6, alive: true, batCd: 0, trapCd: 0,
       y: 0, vy: 0, air: false, spin: 0,
       tag: null, label: null, final: false, aura: null,
+      variant: Math.random() < 0.5 ? 0 : 1, champ: 0, turn: x < this.x ? 1 : -1,
+      action: kind === 'archer' ? 'shoot' : kind === 'healer' ? 'raise' : 'swing', actT: 0, actDur: 0.4, hitT: 0,
     };
     // A few regular heroes wear visible gamer tags so the crowd reads as "other players".
     if (kind !== 'champion' && this.labels < MAX_LABELS && Math.random() < 0.06) {
@@ -443,11 +490,15 @@ export class Game {
       h.flash = Math.max(0, h.flash - dt);
       h.batCd -= dt;
       h.trapCd -= dt;
+      h.actT = Math.max(0, h.actT - dt);
+      h.hitT = Math.max(0, h.hitT - dt);
       if (h.air) { this.fly(h, dt); continue; }
       let dx = this.x - h.x, dz = this.z - h.z;
       const d = Math.hypot(dx, dz) || 0.001;
       dx /= d; dz /= d;
       h.face = Math.atan2(dx, dz);
+      // Heroes always look at the boss; the dead zone stops them flip-flopping when directly above or below it.
+      if (Math.abs(dx) > 0.2) h.turn = approach(h.turn, Math.sign(dx), dt * 6);
 
       // Heroes far behind the camera teleport ahead instead of being lost forever.
       if (d > RUN.spawnRadius * 2.2 && h.kind !== 'champion') {
@@ -476,6 +527,7 @@ export class Game {
           if (h.kind === 'champion' && Math.random() < 0.5) {
             for (let i = 0; i < 12; i++) { const a = (i / 12) * Math.PI * 2; this.enemyShot(h, Math.cos(a), Math.sin(a), def.ranged.damage * dmgScale, def.ranged.speed * 0.7); }
           } else this.enemyShot(h, dx, dz, def.ranged.damage * dmgScale, def.ranged.speed);
+          this.act(h, h.kind === 'champion' ? 'swing' : 'shoot', 0.45);
         }
       }
       if (def.heal) {
@@ -485,6 +537,7 @@ export class Game {
           const amt = def.heal.amount * (1 + this.time / RUN.hpGrowthPeriod);
           this.near(h.x, h.z, def.heal.range, (o) => { if (o !== h && o.hp < o.maxHp) { o.hp = Math.min(o.maxHp, o.hp + amt); this.fx.burst(o.x, 1.2, o.z, 0x7dffb0, 2, 2, 0.15); } });
           this.fx.burst(h.x, 1.6, h.z, 0x7dffb0, 4, 2, 0.14);
+          this.act(h, 'raise', 0.6);
         }
       }
 
@@ -507,6 +560,7 @@ export class Game {
         h.x = this.x + (bx / bd) * touch;
         h.z = this.z + (bz / bd) * touch;
         contact += def.dps * dmgScale;
+        if (h.actT <= 0 && !def.ranged && !def.heal && Math.random() < dt * 2.5) this.act(h, 'swing', 0.38);
         if (h.kind === 'champion') this.taken.champion += def.dps * dmgScale * dt;
       }
     }
@@ -515,6 +569,11 @@ export class Game {
       this.taken.contact += dealt;
       this.hurtBoss(dealt);
     }
+  }
+
+  private act(h: Hero, action: Action, dur: number): void {
+    h.action = action;
+    h.actT = h.actDur = dur;
   }
 
   private enemyShot(h: Hero, dx: number, dz: number, dmg: number, speed: number): void {
@@ -526,6 +585,8 @@ export class Game {
     this.hp -= amount;
     if (this.hurt <= 0.05) sfx.hurt();
     this.hurt = 0.2;
+    // The "ouch" face is rationed: under constant contact damage it would otherwise never leave.
+    if (this.ouchCd <= 0) { this.ouch = 0.35; this.ouchCd = 1.4; }
   }
 
   damage(h: Hero, base: number, kx = 0, kz = 0): void {
@@ -534,6 +595,7 @@ export class Game {
     const dmg = base * this.dmgMul * (this.frenzy > 0 ? 1.5 : 1) * (crit ? 2 : 1);
     h.hp -= dmg;
     h.flash = 0.1;
+    h.hitT = 0.22;
     // Champions shrug off most knockback so they stay threatening.
     const kb = h.kind === 'champion' ? 0.15 : h.kind === 'knight' ? 0.5 : 1;
     h.kx += kx * kb; h.kz += kz * kb;
@@ -557,6 +619,10 @@ export class Game {
       this.hooks.killfeed(`${BOSSES[this.bossId].emoji} ${BOSSES[this.bossId].name} eliminated ${name}`);
     }
     this.dropExtras(h);
+    if (this.paper && this.paper.corpses.length < 80) {
+      this.paper.corpses.push({ x: h.x, z: h.z, y: h.y, cast: this.castIndex(h), face: h.turn, size: this.standeeSize(h), born: this.time, spin: Math.random() < 0.5 ? -1 : 1, seed: h.phase });
+    }
+    if (Math.random() < 0.05 && this.chatter.busy < 3) this.chatter.say({ x: h.x, z: h.z, alive: false }, pick(LINES.defeated), 2.2 * h.def.scale);
     if (h.kind === 'champion') {
       this.championsBeaten++;
       this.champions = this.champions.filter((c) => c !== h);
@@ -592,6 +658,7 @@ export class Game {
     h.air = true;
     h.vy = 5 + Math.hypot(h.kx, h.kz) * 0.35 + lift;
     h.y = Math.max(h.y, 0.05);
+    if (Math.random() < 0.06 && this.chatter.busy < 3) this.chatter.say(h, pick(LINES.launched), 2.4 * h.def.scale);
   }
 
   private fly(h: Hero, dt: number): void {
@@ -650,6 +717,7 @@ export class Game {
       if (w.cd > 0) continue;
       const fired = this.fire(id, def.dmg[i], def.n[i], w.level);
       if (fired) w.cd = def.cd[i] * haste;
+      if (fired && (id === 'fireball' || id === 'stomp' || id === 'minions')) this.bossActT = 0.4;
     }
     this.updateBats(dt);
     this.updateLava(dt);
@@ -848,6 +916,7 @@ export class Game {
       const m = this.minions[i];
       m.life -= dt;
       m.hitCd -= dt;
+      m.actT = Math.max(0, (m.actT ?? 0) - dt);
       let target: Hero | null = null;
       let best = Infinity;
       this.near(m.x, m.z, 12, (h, _dx, _dz, d) => { if (d < best) { best = d; target = h; } });
@@ -859,8 +928,10 @@ export class Game {
       const stop = t ? MINION.radius + t.def.radius : this.radius + 1.5;
       if (d > stop) { m.x += (dx / d) * MINION.speed * dt; m.z += (dz / d) * MINION.speed * dt; m.phase += dt * 14; }
       m.face = Math.atan2(dx, dz);
+      if (Math.abs(dx / d) > 0.2) m.turn = approach(m.turn ?? 1, Math.sign(dx), dt * 7);
       if (t && d <= stop + 0.1 && m.hitCd <= 0) {
         m.hitCd = MINION.hitEvery;
+        m.actT = 0.3;
         this.damage(t, dmg, (dx / d) * 3, (dz / d) * 3);
         m.hp -= t.def.dps * 0.5;
       }
@@ -1075,29 +1146,57 @@ export class Game {
     if (!p) return;
     const now = performance.now() / 1000;
     p.heroes.begin();
+    p.heroes.setTime(now);
     for (const h of this.heroes) {
       if (!h.alive) continue;
-      const sc = h.def.scale;
-      const size = 1.65 * sc;
-      const col = SPRITE_KINDS.indexOf(h.kind) * 2 + (Math.sin(h.phase) > 0 ? 0 : 1);
-      const y = h.air ? h.y : Math.abs(Math.sin(h.phase)) * 0.15 * sc;
-      const roll = h.air ? h.spin : Math.sin(h.phase) * 0.06;
-      p.heroes.push(h.x, y, h.z, size, size, col, h.flash > 0 ? 1 : 0, Math.sin(h.face) < 0, roll);
+      const size = this.standeeSize(h);
+      p.rig.draw(this.castIndex(h), {
+        x: h.x, z: h.z, y: h.air ? h.y : 0, size, face: h.turn,
+        roll: h.air ? h.spin : 0,
+        walk: h.air ? 0 : 1, phase: h.phase, time: now, seed: h.dashCd * 7 + h.variant,
+        action: h.action, act: h.actT > 0 ? 1 - h.actT / h.actDur : 0,
+        hit: h.hitT / 0.22, air: h.air, flash: h.flash > 0 ? 0.85 : 0,
+      });
     }
-    const gob = SPRITE_KINDS.indexOf('goblin') * 2;
-    for (const m of this.minions) {
-      p.heroes.push(m.x, Math.abs(Math.sin(m.phase)) * 0.3, m.z, 1.5, 1.5, gob + (Math.sin(m.phase) > 0 ? 0 : 1), 0, Math.sin(m.face) < 0);
+    const gob = CAST.indexOf('goblin');
+    this.minions.forEach((m, i) => {
+      p.rig.draw(gob, {
+        x: m.x, y: 0, z: m.z, size: 1.9, face: m.turn ?? 1, walk: 1, phase: m.phase, time: now, seed: i * 1.7,
+        action: 'swing', act: (m.actT ?? 0) > 0 ? 1 - (m.actT ?? 0) / 0.3 : 0,
+      });
+    });
+    // Defeated heroes fall backwards flat like a knocked-over standee, then fold away.
+    p.corpses = p.corpses.filter((c) => this.time - c.born < 0.55);
+    for (const c of p.corpses) {
+      const k = (this.time - c.born) / 0.55;
+      const shrink = 1 - Math.max(0, (k - 0.55) / 0.45);
+      p.rig.draw(c.cast, {
+        x: c.x, z: c.z, y: c.y * (1 - k) + Math.sin(k * Math.PI) * 0.5, size: c.size * shrink, face: c.face,
+        roll: c.spin * k * 0.9, lean: k * 1.2, walk: 0, phase: 0, time: now, seed: c.seed,
+        air: true, flash: 0.35 * (1 - k),
+      });
     }
     p.heroes.end();
 
-    const cells = p.bossCells[this.bossId];
-    const flap = cells.length > 1 && Math.sin(now * (this.moving ? 12 : 5)) > 0 ? 1 : 0;
-    const size = this.radius * 4.6;
-    const squash = this.bossId === 'slime' ? 1 + Math.sin(now * (this.moving ? 10 : 4)) * 0.06 : 1;
-    const hop = this.bossId === 'slime' ? 0 : Math.abs(Math.sin(now * (this.moving ? 9 : 3))) * (this.moving ? 0.25 : 0.08);
+    const expr: Face = this.ouch > 0 ? 'hurt' : now % 3.3 < 0.14 ? 'blink' : 'idle';
     p.boss.begin();
-    p.boss.push(this.x, hop, this.z, size / squash, size * squash, cells[flap], 0, Math.sin(this.face) < 0, this.hurt > 0 ? Math.sin(now * 60) * 0.06 : 0);
+    p.boss.setTime(now);
+    p.bossRig.draw(this.bossId, {
+      x: this.x, y: 0, z: this.z, size: this.radius * 4.9, face: this.turn,
+      roll: this.ouch > 0 ? Math.sin(now * 60) * 0.05 : 0,
+      time: now, moving: this.walkBlend, act: this.bossActT > 0 ? 1 - this.bossActT / 0.4 : 0,
+      hurt: this.ouch / 0.35, expr,
+    });
     p.boss.end();
+  }
+
+  private castIndex(h: Hero): number {
+    return CAST.indexOf(castFor(h.kind, h.variant, h.champ));
+  }
+
+  /** Puppet pieces are drawn a little smaller than their cells (see cast.ts FIT), so the standee is scaled up to match. */
+  private standeeSize(h: Hero): number {
+    return 2.05 * h.def.scale;
   }
 
   private placeLabels(): void {

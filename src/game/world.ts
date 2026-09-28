@@ -275,7 +275,7 @@ export class World {
       sd.batch.begin();
       for (const s of sd.spots) {
         const size = sd.size * s.s;
-        sd.batch.push(wrapNear(s.x, px, sd.span), 0, wrapNear(s.z, pz, sd.span), size, size, s.prop, 0, s.x > 45);
+        sd.batch.push({ x: wrapNear(s.x, px, sd.span), y: 0, z: wrapNear(s.z, pz, sd.span), w: size, h: size, cell: s.prop, face: s.x > 45 ? -1 : 1 });
       }
       sd.batch.end();
     }
