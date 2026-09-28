@@ -61,7 +61,7 @@ const game: Game = new Game(world, byId('labels'), {
   combo: (n) => ui.combo(n),
 });
 
-const buildUi = new BuildUi(game, world.camera, byId('touch-surface'), () => {
+const buildUi = new BuildUi(game, world, byId('touch-surface'), () => {
   game.startRaid();
   buildUi.hide();
   ui.startRun();

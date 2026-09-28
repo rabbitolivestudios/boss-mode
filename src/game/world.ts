@@ -45,8 +45,10 @@ export class World {
   zoom = 1;
   /** Areas scenery must not cover (the vault, the gateways). */
   keepClear: { x: number; z: number; r: number }[] = [];
-  /** Build phase: pull the camera up over the whole castle instead of following the boss. */
+  /** Build phase: pull the camera up over the castle instead of following the boss. */
   overview = false;
+  /** Where the build camera looks; phones pan it by dragging, since the whole castle will not fit. */
+  focus = { x: 0, z: 0 };
 
   constructor(canvas: HTMLCanvasElement, readonly style: StyleId) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: window.devicePixelRatio < 2, powerPreference: 'high-performance' });
@@ -62,9 +64,12 @@ export class World {
     else if (style === 'diorama') this.buildDiorama();
     else this.buildClassic();
 
+    this.baseFogFar = (this.scene.fog as THREE.Fog | null)?.far ?? 100;
     this.resize();
     window.addEventListener('resize', () => this.resize());
   }
+
+  private baseFogFar = 100;
 
   get shadows(): boolean { return this.style === 'diorama'; }
 
@@ -253,10 +258,15 @@ export class World {
     const sx = (Math.random() - 0.5) * this.shake;
     const sz = (Math.random() - 0.5) * this.shake;
     const d = this.zoom;
+    const fog = this.scene.fog as THREE.Fog | null;
+    if (fog) fog.far = this.overview ? 400 : this.baseFogFar;
     if (this.overview) {
-      px = 0; pz = 0;
-      this.camera.position.set(0, 38 * d, 30 * d);
-      this.camera.lookAt(0, 0, 1);
+      // Landscape screens see the whole castle; portrait phones get a closer view they can pan.
+      const portrait = this.zoom > 1;
+      const fx = portrait ? this.focus.x : 0, fz = portrait ? this.focus.z : 0;
+      px = fx; pz = fz;
+      this.camera.position.set(fx, portrait ? 48 : 38, fz + (portrait ? 34 : 30));
+      this.camera.lookAt(fx, 0, fz + 1);
     } else {
       this.camera.position.set(px + sx, this.rig.height * d, pz + this.rig.back * d + sz);
       this.camera.lookAt(px + sx * 0.5, 0, pz - 1);

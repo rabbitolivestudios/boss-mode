@@ -1,6 +1,7 @@
 import * as THREE from 'three';
-import { BUILDINGS, NIGHTS, type BuildingId } from './config';
+import { BUILDINGS, CASTLE, NIGHTS, type BuildingId } from './config';
 import type { Game, NightReport } from './game';
+import type { World } from './world';
 
 // The between-nights interface: the build bar, placing and selling on the grid, and the dawn report.
 
@@ -19,9 +20,19 @@ export class BuildUi {
   private hit = new THREE.Vector3();
   private msgTimer = 0;
 
-  constructor(private game: Game, private camera: THREE.Camera, surface: HTMLElement, onStart: () => void) {
+  private drag: { x: number; y: number; moved: boolean; fx: number; fz: number } | null = null;
+
+  constructor(private game: Game, private world: World, surface: HTMLElement, onStart: () => void) {
+    // A tap builds or sells; a drag pans the camera (phones only need it, but it is harmless elsewhere).
     surface.addEventListener('pointerdown', (e) => {
       if (this.game.phase !== 'build') return;
+      this.drag = { x: e.clientX, y: e.clientY, moved: false, fx: this.world.focus.x, fz: this.world.focus.z };
+    });
+    surface.addEventListener('pointerup', (e) => {
+      if (this.game.phase !== 'build' || !this.drag) return;
+      const moved = this.drag.moved;
+      this.drag = null;
+      if (moved) return;
       const cell = this.cellAt(e.clientX, e.clientY);
       if (!cell) return;
       const [cx, cz] = cell;
@@ -35,6 +46,18 @@ export class BuildUi {
     });
     surface.addEventListener('pointermove', (e) => {
       if (this.game.phase !== 'build') return;
+      if (this.drag) {
+        const dx = e.clientX - this.drag.x, dy = e.clientY - this.drag.y;
+        if (Math.hypot(dx, dy) > 10) this.drag.moved = true;
+        if (this.drag.moved) {
+          // Roughly one world unit per 18px at the phone build zoom; clamp to the castle.
+          const lim = CASTLE.half * CASTLE.cell * 0.6;
+          this.world.focus.x = Math.max(-lim, Math.min(lim, this.drag.fx - dx / 18));
+          this.world.focus.z = Math.max(-lim, Math.min(lim, this.drag.fz - dy / 18));
+          this.game.hover = null;
+          return;
+        }
+      }
       const cell = this.cellAt(e.clientX, e.clientY);
       if (!cell) { this.game.hover = null; return; }
       const [cx, cz] = cell;
@@ -46,13 +69,14 @@ export class BuildUi {
 
   private cellAt(px: number, py: number): [number, number] | null {
     const ndc = new THREE.Vector2((px / window.innerWidth) * 2 - 1, -(py / window.innerHeight) * 2 + 1);
-    this.ray.setFromCamera(ndc, this.camera);
+    this.ray.setFromCamera(ndc, this.world.camera);
     if (!this.ray.ray.intersectPlane(this.ground, this.hit)) return null;
     const [cx, cz] = this.game.castle.cellOf(this.hit.x, this.hit.z);
     return this.game.castle.inside(cx, cz) ? [cx, cz] : null;
   }
 
   show(night: number): void {
+    this.world.focus = { x: 0, z: 0 };
     $('buildbar').classList.remove('hidden');
     $('build-title').textContent = `NIGHT ${night + 1} of ${NIGHTS.length}`;
     $('btn-raid').textContent = night === NIGHTS.length - 1 ? 'START THE FINAL RAID ▶' : `START NIGHT ${night + 1} ▶`;
