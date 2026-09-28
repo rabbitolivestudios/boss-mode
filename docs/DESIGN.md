@@ -49,7 +49,73 @@ The story is told in about ten words on screen and then through play. Kids this 
 
 These values were tuned against an automated kiting bot that picks upgrades at random (`?speed` plus a scripted run). Across two batches the bot won 2 of 3 runs, then lost all 3 somewhere between 3:10 and 3:56. The swing mostly comes from which upgrades it happened to pick. **Real playtests with kids are the next step.** Every number is in `src/game/config.ts`.
 
-## Roadmap ideas
+## v2: BOSS CASTLE (survivors + tower defense)
+
+**Pitch:** *You're the final boss, and the heroes remember you.* Vampire Survivors and tower defense in one game, played as the villain defending your own treasure.
+
+**Why this is ours.** v1 is a survivors game with the names swapped: heroes behave like any horde. A real boss has three things a survivors hero does not (a **lair**, **treasure** and a **reputation**), and v2 makes all three matter. The nearest comparisons are *Orcs Must Die* (you plus traps against a horde) and *Dungeon Keeper* (you run the dungeon). Neither puts you in the boss's shoes with survivors controls, pinball physics and a kid audience.
+
+### The loop: one night, one raid
+
+1. **Build phase.** Place walls, traps and towers on your castle grid. Untimed by default; press READY.
+2. **Raid phase (about 2–3 minutes).** Heroes enter through gates and path toward the **treasure vault**. Buildings work automatically; you roam as the boss exactly as in v1, levelling up and picking power cards mid-raid.
+3. **Loot phase.** Count the treasure kept and spend it on building.
+
+A **season** is 7 nights, ending with a legendary hero party.
+
+**Core tension: treasure is both score and money.** Every coin spent on a tower is a coin not in the vault, and thieves are carrying coins out of the vault during every raid.
+
+### How the two genres support each other
+
+- **Walls shape paths**, as in classic tower defense. Fully sealing the vault does not work: heroes smash walls that block every route, so mazing is about slowing and steering, not stopping.
+- **Physics makes the castle a pinball table.** Launch pads fling heroes down corridors into spike pits and bowl over the heroes behind them. Layout creates combos.
+- **The boss is the hero unit** (as in *Kingdom Rush*), needed where the defences leak: chasing thieves, plugging gaps, saving the vault.
+- **Power cards can upgrade buildings** ("every saw gets a second blade") as well as the boss, so the survivors build and the castle build feed each other.
+
+### Treasure and thieves
+
+- Heroes grab coins from the vault and **run for the exits**. A thief is marked with a coin bag over their head.
+- Hitting a thief makes them drop the loot; coins that escape are lost.
+- **Mimic chests** are decoy treasure: thieves go for them and get bitten.
+
+### Buildables (paper-craft)
+
+Walls, spike pits, launch pads, saw blades, lava moats, slime puddles (slow), goblin barracks (spawns minions), skeleton archer tower, trapdoors, mimic chests.
+
+### Heroes with jobs
+
+| Hero | Job |
+|---|---|
+| Rogue | sneaks straight for the treasure, avoids the boss |
+| Builder | breaks walls |
+| Wizard | disables traps for a few seconds |
+| Knight | tanks, hard to launch |
+| Healer | keeps the party alive |
+| Noob / Archer / Tryhard | the v1 crowd |
+
+### Nemesis heroes
+
+A thief who escapes **levels up and returns** on later nights and in later runs, wearing what they stole (your crown, a scale from your tail). *"xX_BaconSlayer_Xx returns! Level 3, wearing your crown."* Saved in the browser, so no accounts are needed.
+
+### Story
+
+You are the final boss in *Heroes Online*, a huge fantasy game, programmed to lose at every server reset so players can farm your loot. One day you decide not to lose. If you keep losing, the developers delete you and replace you with a "better boss". Between raids the bosses hang out in the **Boss Break Room**: Blaze is secretly nervous, Gloop just wants friends, Rattles is extremely dramatic. The hub is where you unlock bosses, spend kept treasure on permanent upgrades, and read your rivals' boasts. The season finale is a **speedrunner** who has "solved" your castle; beat them and you are promoted to legendary boss.
+
+### Build order
+
+1. **Treasure vault and thieves** in the current arena, to prove the stealing loop is fun before building anything else.
+2. **Castle map, grid pathfinding (flow field) and a build phase** with four buildables: wall, spike pit, launch pad, saw.
+3. **Nights, the economy and the season structure.**
+4. **Nemesis heroes.**
+5. **Boss Break Room and the story frame.**
+
+Later: raids against friends (friends design a hero party that raids your castle, with no chat), boss Phase 2 transformations, more bosses and biomes.
+
+**Risks to watch:** pathfinding for 500 heroes (a shared flow field on the grid keeps this cheap), a building interface that works with thumbs on a phone, and scope: each step above should be playable and playtested before the next starts.
+
+**Decided against:** "patch notes" that nerf the player's best move between runs (owner ruling).
+
+## v1 roadmap ideas (superseded by v2 above where they overlap)
 
 **Next (makes it sticky)**
 - **Boss Lair meta-progression:** spend the treasure you defended between runs on permanent upgrades and decorations for your lair.
