@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { BUILDINGS, CASTLE, NIGHTS, type BuildingId } from './config';
+import { BUILDINGS, CASTLE, HEROES, NIGHTS, type BuildingId, type HeroKind } from './config';
+import { castFor, castPortrait } from './cast';
 import type { Game, NightReport } from './game';
 import type { World } from './world';
 
@@ -65,6 +66,13 @@ export class BuildUi {
       this.game.hover = { cx, cz, ok };
     });
     $('btn-raid').addEventListener('click', onStart);
+    $('btn-repair').addEventListener('click', () => {
+      if (this.game.repairAll()) this.say('All repaired!');
+      else this.say('Not enough gold to repair');
+      this.shown = '';
+      this.refresh();
+    });
+    $('btn-challenger').addEventListener('click', () => $('challenger').classList.add('hidden'));
   }
 
   private cellAt(px: number, py: number): [number, number] | null {
@@ -104,11 +112,15 @@ export class BuildUi {
   private shown = '';
 
   refresh(): void {
-    const key = `${this.game.treasure}|${this.tool}`;
+    const repair = this.game.repairCost();
+    const key = `${this.game.treasure}|${this.tool}|${repair}`;
     if (key === this.shown) return;
     this.shown = key;
     $('build-gold').textContent = `💰 ${this.game.treasure}`;
-    document.querySelectorAll<HTMLButtonElement>('.tool').forEach((b) => {
+    const rb = $('btn-repair') as HTMLButtonElement;
+    rb.hidden = repair <= 0;
+    rb.textContent = `🔧 Repair all: 💰${repair}`;
+    document.querySelectorAll<HTMLButtonElement>('#tools .tool').forEach((b) => {
       const id = b.dataset.tool as Tool;
       b.classList.toggle('on', id === this.tool);
       b.classList.toggle('poor', id !== 'sell' && BUILDINGS[id].cost >= this.game.treasure);
@@ -124,6 +136,15 @@ export class BuildUi {
     el.classList.add('flash');
   }
 
+  challenger(kind: HeroKind, text: string): void {
+    const art = $('ch-art');
+    art.innerHTML = '';
+    art.appendChild(castPortrait(castFor(kind, 0)));
+    $('ch-name').textContent = HEROES[kind].label.toUpperCase();
+    $('ch-text').textContent = text;
+    $('challenger').classList.remove('hidden');
+  }
+
   dawn(r: NightReport, onNext: () => void): void {
     $('dawn').classList.remove('hidden');
     $('dawn-title').textContent = `NIGHT ${r.night + 1} SURVIVED!`;
@@ -132,7 +153,10 @@ export class BuildUi {
       <div><b>${r.kills}</b>heroes beaten</div>
       <div><b>💰 ${r.stolen}</b>gold stolen</div>
       <div><b>+${r.tribute}</b>sunrise tribute</div>
-      <div><b>💰 ${r.treasure}</b>in the vault</div>`;
+      <div><b>💰 ${r.treasure}</b>in the vault</div>
+      <div><b>${r.damage}</b>damage you took</div>
+      <div><b>${Math.round(r.buildingShare * 100)}%</b>kills by buildings</div>`;
+    $('dawn-adapt').textContent = r.adapting ? `💬 Heroes' chat: "${r.adapting}"` : '';
     $('dawn-hint').textContent = r.stars === 3 ? 'Perfect night: not a single coin escaped!' : 'Stars come from keeping gold: stop thieves before they reach a gate.';
     const btn = $('btn-next');
     btn.textContent = r.night + 1 === NIGHTS.length - 1 ? 'Prepare for the final raid ▶' : 'Build ▶';

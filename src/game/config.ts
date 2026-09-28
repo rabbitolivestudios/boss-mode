@@ -100,7 +100,7 @@ export const DIFFICULTIES: Difficulty[] = [
 export const OPEN_TIERS = 1;
 export const DEFAULT_TIER = 1;
 
-export type HeroKind = 'noob' | 'archer' | 'knight' | 'sweat' | 'healer' | 'rogue' | 'champion';
+export type HeroKind = 'noob' | 'archer' | 'knight' | 'sweat' | 'healer' | 'rogue' | 'shieldbearer' | 'glider' | 'nerd' | 'sapper' | 'champion';
 
 export interface HeroDef {
   label: string;
@@ -117,6 +117,10 @@ export interface HeroDef {
   ranged?: { range: number; cooldown: number; speed: number; damage: number };
   heal?: { range: number; cooldown: number; amount: number };
   dash?: { cooldown: number; duration: number; mult: number };
+  /** Counter-heroes: each beats one kind of defence (see COUNTERS). */
+  shield?: boolean;
+  flying?: boolean;
+  saboteur?: 'jam' | 'sap';
 }
 
 export const HEROES: Record<HeroKind, HeroDef> = {
@@ -134,6 +138,10 @@ export const HEROES: Record<HeroKind, HeroDef> = {
     label: 'Healer', hp: 14, speed: 3.0, dps: 4, radius: 0.45, scale: 1, xp: 3, body: 0xffffff, head: 0xffc9a0, gear: 0x7dffb0,
     heal: { range: 5, cooldown: 2, amount: 6 },
   },
+  shieldbearer: { label: 'Shieldbearer', hp: 28, speed: 2.6, dps: 10, radius: 0.55, scale: 1.25, xp: 3, body: 0x6c7a8f, head: 0xffcfa6, gear: 0xd8263a, shield: true },
+  glider: { label: 'Glider', hp: 14, speed: 3.9, dps: 6, radius: 0.45, scale: 1, xp: 3, body: 0x29a3ff, head: 0xffcfa6, gear: 0xffffff, flying: true },
+  nerd: { label: 'Trap Nerd', hp: 16, speed: 3.3, dps: 4, radius: 0.45, scale: 1, xp: 3, body: 0xffa31a, head: 0xffcfa6, gear: 0x9aa4b1, saboteur: 'jam' },
+  sapper: { label: 'Sapper', hp: 12, speed: 3.7, dps: 5, radius: 0.45, scale: 1, xp: 3, body: 0x5a5a6a, head: 0xffcfa6, gear: 0x2a2a2a, saboteur: 'sap' },
   rogue: { label: 'Rogue', hp: 10, speed: 4.1, dps: 6, radius: 0.42, scale: 0.95, xp: 2, body: 0x5a3a8a, head: 0x2a1f3d, gear: 0xdfe6ee },
   champion: {
     label: 'Champion', hp: 450, speed: 3.4, dps: 16, radius: 1.1, scale: 2.4, xp: 0, body: 0xffc21a, head: 0xffe7b0, gear: 0xff5a1a,
@@ -181,12 +189,37 @@ export type BuildingId = 'wall' | 'spikes' | 'pad' | 'saw' | 'tower';
 
 export interface BuildingDef { name: string; icon: string; cost: number; blurb: string }
 
-export const BUILDINGS: Record<BuildingId, BuildingDef> = {
-  wall: { name: 'Wall', icon: '🧱', cost: 4, blurb: 'Heroes must walk around it' },
-  spikes: { name: 'Spike Pit', icon: '📌', cost: 10, blurb: 'Hurts and slows heroes who cross' },
-  pad: { name: 'Launch Pad', icon: '🚀', cost: 15, blurb: 'Flings heroes into each other' },
-  saw: { name: 'Saw Blade', icon: '🪚', cost: 18, blurb: 'Shreds anyone who touches it' },
-  tower: { name: 'Bone Archer', icon: '🏹', cost: 25, blurb: 'Shoots the nearest hero' },
+export interface BuildingDefFull extends BuildingDef { hp: number }
+
+export const BUILDINGS: Record<BuildingId, BuildingDefFull> = {
+  wall: { name: 'Wall', icon: '🧱', cost: 4, hp: 60, blurb: 'Heroes must walk around it' },
+  spikes: { name: 'Spike Pit', icon: '📌', cost: 10, hp: 50, blurb: 'Hurts and slows heroes who cross' },
+  pad: { name: 'Launch Pad', icon: '🚀', cost: 15, hp: 50, blurb: 'Flings heroes into each other' },
+  saw: { name: 'Saw Blade', icon: '🪚', cost: 18, hp: 70, blurb: 'Shreds anyone who touches it' },
+  tower: { name: 'Bone Archer', icon: '🏹', cost: 25, hp: 80, blurb: 'Shoots the nearest hero' },
+};
+
+/**
+ * Counter-heroes join the raids from a given night (0-based) with a spawn weight added to the wave mix.
+ * `boost` names the building whose kills make this hero more common next night.
+ */
+export const COUNTERS: { kind: HeroKind; from: number; weight: number; boost: BuildingId[]; card: string; taunt: string }[] = [
+  { kind: 'shieldbearer', from: 1, weight: 9, boost: ['tower', 'saw'], card: 'Your buildings cannot hurt it. Hit it yourself (or launch it) to shatter the shield.', taunt: 'shields up, they spam towers lol' },
+  { kind: 'glider', from: 2, weight: 9, boost: ['spikes', 'pad', 'wall'], card: 'Flies over walls, spikes, pads and saws. Towers and your attacks still hit it.', taunt: 'bring wings, they spam spikes' },
+  { kind: 'nerd', from: 3, weight: 6, boost: ['saw', 'pad', 'spikes'], card: 'Walks up to a trap and disarms it for a while. Stop it before the wrench finishes.', taunt: 'nerd squad, go fix their traps' },
+  { kind: 'sapper', from: 4, weight: 6, boost: ['wall', 'tower'], card: 'Runs at your buildings and blows them up. Repair at dawn, or stop it first.', taunt: 'sappers! blow up their walls' },
+];
+
+export const SABOTAGE = {
+  /** Seconds a Trap Nerd works on a trap, and how long the trap stays disarmed. */
+  jamWork: 2.5,
+  jamFor: 9,
+  sapDamage: 45,
+  sapRadius: 2.4,
+  /** Share of a building's price paid to repair it from 0 HP (prorated). */
+  repairShare: 0.5,
+  /** Next night's weight multiplier = 1 + boostPerShare * (share of kills by the boosting buildings). */
+  boostPerShare: 2.5,
 };
 
 /** The buildable grid around the vault, and what each building does. */
@@ -322,9 +355,27 @@ export const XP = {
   first: 3,
   perLevel: 5,
   magnetBase: 6,
+  lateFrom: 25,
+  lateSquare: 0.5,
   gemValueColors: [0x3aa8ff, 0x3aff8a, 0xc05bff] as const,
 };
 
+/**
+ * XP for the next level. The squared term past XP.lateFrom only affects the last ~20 picks: a strong run
+ * used to max every upgrade by night 5-6, so the finish line moved out without slowing the early game.
+ */
 export function xpToNext(level: number): number {
-  return XP.first + (level - 1) * XP.perLevel + Math.floor(Math.pow(level, 1.5));
+  const late = Math.max(0, level - XP.lateFrom);
+  return XP.first + (level - 1) * XP.perLevel + Math.floor(Math.pow(level, 1.5)) + Math.floor(XP.lateSquare * late * late);
 }
+
+/** Uncapped small boosts offered once every upgrade is maxed. */
+export const LIMIT_BREAKS: { id: 'might' | 'haste' | 'hp' | 'speed'; name: string; icon: string; blurb: string; per: number }[] = [
+  { id: 'might', name: 'Limit Break: Power', icon: '⭐', blurb: '+5% damage', per: 0.05 },
+  { id: 'haste', name: 'Limit Break: Speed Up', icon: '⭐', blurb: '-3% cooldowns', per: 0.03 },
+  { id: 'hp', name: 'Limit Break: Toughness', icon: '⭐', blurb: '+12 max HP', per: 12 },
+  { id: 'speed', name: 'Limit Break: Zoom', icon: '⭐', blurb: '+3% move speed', per: 0.03 },
+];
+
+/** Hero health rises this much per night on top of the time curve, so later nights hit harder in kind. */
+export const NIGHT_TOUGHNESS = 0.15;

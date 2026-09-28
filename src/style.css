@@ -177,3 +177,12 @@ body.style-diorama::after { content: ''; position: fixed; inset: 0; pointer-even
 
 .tag.breach { font-size: 14px; background: #ff3d5a; color: #fff; box-shadow: 0 3px 0 #8a0f24; }
 .tag.breach[hidden] { display: none; }
+
+#challenger { background: rgba(27, 16, 51, .82); }
+#challenger .kicker { margin: 0; font-size: 22px; color: var(--pink); letter-spacing: .08em; text-shadow: 0 3px 0 #000; }
+#ch-art canvas { width: 180px; height: 180px; animation: wiggle .6s ease-in-out infinite alternate; }
+#ch-text { max-width: 420px; text-align: center; font-size: 19px; margin: 0; }
+#dawn-adapt { margin: 0; font-size: 17px; background: #fff; color: var(--ink); border: 3px solid var(--ink); border-radius: 14px; padding: 4px 14px; }
+#dawn-adapt:empty { display: none; }
+.tool.repair { width: auto; flex-direction: row; gap: 6px; padding: 6px 14px; font-size: 16px; background: #3ee07a; color: var(--ink); }
+.tool.repair[hidden] { display: none; }

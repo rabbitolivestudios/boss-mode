@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import {
-  BOSSES, BUILDINGS, CASTLE, CHAMPIONS, DEFAULT_TIER, DIFFICULTIES, HEROES, MAX_LEVEL, MINION, NIGHTS, PASSIVES, PHYSICS, RUN, STARS, TRAPS, TREASURE, WAVES, WEAPONS, XP, xpToNext,
+  BOSSES, BUILDINGS, CASTLE, CHAMPIONS, COUNTERS, DEFAULT_TIER, SABOTAGE, DIFFICULTIES, HEROES, LIMIT_BREAKS, MAX_LEVEL, MINION, NIGHT_TOUGHNESS, NIGHTS, PASSIVES, PHYSICS, RUN, STARS, TRAPS, TREASURE, WAVES, WEAPONS, XP, xpToNext,
   type BossId, type BuildingId, type Difficulty, type HeroDef, type HeroKind, type PassiveId, type WeaponId,
 } from './config';
 import { Fx } from './fx';
@@ -9,7 +9,7 @@ import { gamerTag } from './names';
 import { BOSS_PARTS, bossAtlas, type Face } from './bossart';
 import { CAST, castAtlas, castFor } from './cast';
 import { CHAMPION_LINES, Chatter, LINES, pick } from './chatter';
-import { Castle } from './castle';
+import { Castle, type Building } from './castle';
 import { castleAtlas, castleCell } from './castleart';
 import { lootAtlas, lootCell } from './lootart';
 import { SpriteBatch } from './paper';
@@ -28,7 +28,9 @@ export interface Hero {
   /** Current puppet action (sword swing, bow shot, staff raise), its seconds left and length, and the hit reaction timer. */
   action: Action; actT: number; actDur: number; hitT: number;
   /** 'loot' heroes ignore the boss and go for the vault; `carry` is the gold in their sack. */
-  goal: 'boss' | 'loot'; carry: number; grabT: number; slowT: number;
+  goal: 'boss' | 'loot' | 'sabotage'; carry: number; grabT: number; slowT: number;
+  /** Counter-hero state: shield still up, saboteur target and work progress, and whether the boss caused its launch. */
+  shield: boolean; target: Building | null; workT: number; bossLaunch: boolean; lastHit: 'boss' | BuildingId;
 }
 /** Gold knocked out of a thief's sack: it bounces, then flies home to the vault. */
 interface Spill { x: number; z: number; y: number; vx: number; vz: number; vy: number; t: number; sx: number; sz: number }
@@ -41,7 +43,7 @@ function approach(v: number, target: number, step: number): number {
   return v < target ? Math.min(target, v + step) : Math.max(target, v - step);
 }
 interface Trap { kind: 'spring' | 'saw'; x: number; z: number; life: number; bounce: number }
-interface Shot { x: number; z: number; vx: number; vz: number; life: number; dmg: number; pierce: number; hit: Set<Hero> | null; enemy: boolean }
+interface Shot { x: number; z: number; vx: number; vz: number; life: number; dmg: number; pierce: number; hit: Set<Hero> | null; enemy: boolean; src?: BuildingId }
 interface Gem { x: number; z: number; value: number; tier: number; pulled: boolean; spin: number; snack?: boolean; vacuum?: boolean }
 interface Lava { x: number; z: number; r: number; life: number; tick: number }
 interface Minion { x: number; z: number; hp: number; life: number; hitCd: number; face: number; phase: number; turn?: number; actT?: number; seed?: number }
@@ -49,9 +51,10 @@ interface Minion { x: number; z: number; hp: number; life: number; hitCd: number
 export type Choice =
   | { kind: 'weapon'; id: WeaponId; level: number }
   | { kind: 'passive'; id: PassiveId; level: number }
+  | { kind: 'limit'; id: 'might' | 'haste' | 'hp' | 'speed' }
   | { kind: 'snack' };
 
-export interface Summary { difficulty: Difficulty; win: boolean; time: number; kills: number; level: number; boss: BossId; champions: number; bestCombo: number; treasure: number; stolen: number; reason: 'hp' | 'vault' | 'win'; escapes: Escape[] }
+export interface Summary { difficulty: Difficulty; win: boolean; time: number; kills: number; level: number; boss: BossId; champions: number; bestCombo: number; treasure: number; stolen: number; reason: 'hp' | 'vault' | 'win'; escapes: Escape[]; allPicksAt: number | null; night: number }
 
 export interface GameHooks {
   levelUp(choices: Choice[]): void;
@@ -64,14 +67,16 @@ export interface GameHooks {
   build(night: number): void;
   /** A night was survived. */
   dawn(report: NightReport): void;
+  /** A counter-hero joins the raids for the first time this night. */
+  challenger(kind: HeroKind, text: string): void;
 }
 
-export interface NightReport { night: number; kills: number; stolen: number; recovered: number; tribute: number; stars: number; treasure: number }
+export interface NightReport { night: number; kills: number; stolen: number; recovered: number; tribute: number; stars: number; treasure: number; damage: number; buildingShare: number; adapting: string | null; level: number; maxed: boolean }
 
 /** Everything needed to replay a night from its build phase, or to continue a season later. */
 export interface SeasonSave {
   boss: BossId; difficulty: string; night: number; treasure: number; time: number;
-  buildings: [BuildingId, number, number, number][];
+  buildings: [BuildingId, number, number, number, number?][];
   seed: number;
   level: number; xp: number; weapons: [WeaponId, number][]; passives: [PassiveId, number][];
   kills: number; stolen: number; championsBeaten: number; bestCombo: number;
@@ -142,6 +147,13 @@ export class Game {
   private nightRecovered = 0;
   private nightStartGold = 0;
   save: SeasonSave | null = null;
+  /** Counter-hero weight multipliers, raised by the buildings that did the killing last night. */
+  private counterBoost = new Map<HeroKind, number>();
+  private nightBuildingKills = new Map<BuildingId, number>();
+  private nightDamage = 0;
+  /** Season time when every upgrade had been taken, for the summary. */
+  allPicksAt: number | null = null;
+  private limits: Partial<Record<'might' | 'haste' | 'hp' | 'speed', number>> = {};
   /** Damage taken by source, for tuning. */
   taken = { contact: 0, arrows: 0, champion: 0 };
   private comboT = 0;
@@ -398,6 +410,8 @@ export class Game {
     const wrecked = this.shred();
     this.save = this.snapshot();
     this.hooks.build(this.night);
+    const debut = COUNTERS.find((c) => c.from === this.night);
+    if (debut) this.hooks.challenger(debut.kind, debut.card);
     if (wrecked) this.hooks.banner('Breach!', `${wrecked} building${wrecked > 1 ? 's were' : ' was'} wrecked by a new breach (half refunded)`);
   }
 
@@ -407,6 +421,7 @@ export class Game {
     this.running = true;
     this.hover = null;
     this.nightTime = 0; this.nightKills = 0; this.nightStolen = 0; this.nightRecovered = 0;
+    this.nightDamage = 0; this.nightBuildingKills.clear();
     this.nightStartGold = this.treasure;
     const last = this.night === NIGHTS.length - 1;
     this.hooks.banner(`NIGHT ${this.night + 1}${last ? ': THE FINAL RAID' : ''}`, last ? 'The Chosen One is coming for your treasure' : 'Guard the vault until sunrise!');
@@ -424,11 +439,26 @@ export class Game {
     this.treasure += tribute;
     const kept = this.nightStartGold > 0 ? (this.nightStartGold - this.nightStolen) / this.nightStartGold : 1;
     const stars = kept >= STARS.three ? 3 : kept >= STARS.two ? 2 : 1;
+    // The raiders adapt: whichever buildings did the killing make their counter-hero more common.
+    let byBuildings = 0;
+    for (const n of this.nightBuildingKills.values()) byBuildings += n;
+    let adapting: string | null = null, strongest = 1.4;
+    for (const c of COUNTERS) {
+      const share = c.boost.reduce((sum, id) => sum + (this.nightBuildingKills.get(id) ?? 0), 0) / Math.max(1, this.nightKills);
+      const boost = 1 + SABOTAGE.boostPerShare * share;
+      this.counterBoost.set(c.kind, boost);
+      if (boost > strongest && this.night + 1 >= c.from) { strongest = boost; adapting = c.taunt; }
+    }
+    for (const b of this.castle.buildings) b.jammed = 0;
     this.phase = 'dawn';
     this.running = false;
     this.clearRaid();
     sfx.win();
-    this.hooks.dawn({ night: this.night, kills: this.nightKills, stolen: this.nightStolen, recovered: this.nightRecovered, tribute, stars, treasure: this.treasure });
+    this.hooks.dawn({
+      night: this.night, kills: this.nightKills, stolen: this.nightStolen, recovered: this.nightRecovered, tribute, stars,
+      treasure: this.treasure, damage: Math.round(this.nightDamage), buildingShare: byBuildings / Math.max(1, this.nightKills),
+      adapting, level: this.level, maxed: this.allPicksAt !== null,
+    });
   }
 
   nextNight(): void {
@@ -458,7 +488,7 @@ export class Game {
     if (this.phase !== 'build') return 'Build between nights';
     const why = this.canBuild(cx, cz, id);
     if (why) return why;
-    this.castle.place(cx, cz, id, this.night);
+    this.castle.place(cx, cz, id, this.night, BUILDINGS[id].hp);
     this.treasure -= BUILDINGS[id].cost;
     sfx.coin();
     const [x, z] = this.castle.center(cx, cz);
@@ -487,7 +517,7 @@ export class Game {
   private snapshot(): SeasonSave {
     return {
       boss: this.bossId, difficulty: this.difficulty.id, night: this.night, treasure: this.treasure, time: this.time,
-      buildings: this.castle.buildings.map((b) => [b.id, b.cx, b.cz, b.night]),
+      buildings: this.castle.buildings.map((b) => [b.id, b.cx, b.cz, b.night, b.hp]),
       seed: this.seasonSeed,
       level: this.level, xp: this.xp, weapons: [...this.weapons].map(([id, w]) => [id, w.level]), passives: [...this.passives],
       kills: this.kills, stolen: this.stolen, championsBeaten: this.championsBeaten, bestCombo: this.bestCombo,
@@ -509,7 +539,7 @@ export class Game {
     this.nextChampion = CHAMPIONS.filter((c) => c.night - 1 < sv.night).length;
     this.seasonSeed = sv.seed ?? 1;
     this.castle.clear();
-    for (const [id, cx, cz, night] of sv.buildings) this.castle.place(cx, cz, id, night ?? sv.night);
+    for (const [id, cx, cz, night, hp] of sv.buildings) { const b = this.castle.place(cx, cz, id, night ?? sv.night, BUILDINGS[id].hp); b.hp = hp ?? b.maxHp; }
     this.enterBuild();
   }
 
@@ -519,7 +549,7 @@ export class Game {
     this.combo = 0; this.bestCombo = 0; this.comboT = 0;
     this.taken = { contact: 0, arrows: 0, champion: 0 };
     this.chest = null; this.chestMesh.visible = false;
-    this.weapons.clear(); this.passives.clear();
+    this.weapons.clear(); this.passives.clear(); this.limits = {}; this.allPicksAt = null;
     this.x = 4.5; this.z = 0.5; this.time = 0; this.kills = 0; this.championsBeaten = 0;
     this.treasure = TREASURE.start; this.stolen = 0; this.escapes = []; this.spills = []; this.warnedThief = false; this.nextHeist = TREASURE.heistFirst;
     this.level = 1; this.xp = 0; this.xpNeed = xpToNext(1); this.rage = 0; this.frenzy = 0; this.hurt = 0;
@@ -533,13 +563,14 @@ export class Game {
 
   private recalc(): void {
     const p = (id: PassiveId) => (this.passives.get(id) ?? 0) * PASSIVES[id].per;
+    const lim = (id: 'might' | 'haste' | 'hp' | 'speed') => (this.limits[id] ?? 0) * (LIMIT_BREAKS.find((l) => l.id === id)?.per ?? 0);
     const def = BOSSES[this.bossId];
     const oldMax = this.maxHp;
-    this.maxHp = def.hp + p('heart');
+    this.maxHp = def.hp + p('heart') + lim('hp');
     this.hp += Math.max(0, this.maxHp - oldMax);
-    this.speed = def.speed * (1 + p('boots'));
-    this.dmgMul = 1 + p('might');
-    this.cdMul = Math.max(0.4, 1 - p('haste'));
+    this.speed = def.speed * (1 + p('boots') + lim('speed'));
+    this.dmgMul = 1 + p('might') + lim('might');
+    this.cdMul = Math.max(0.35, 1 - p('haste') - lim('haste'));
     this.magnet = 1 + p('magnet');
     this.regen = p('regen');
   }
@@ -559,7 +590,12 @@ export class Game {
     }
     const out: Choice[] = [];
     while (out.length < 3 && pool.length) out.push(pool.splice(Math.floor(Math.random() * pool.length), 1)[0]);
-    if (!out.length) out.push({ kind: 'snack' });
+    if (!out.length) {
+      // Everything is maxed: record when, then keep offering small uncapped boosts.
+      if (this.allPicksAt === null) this.allPicksAt = this.time;
+      const lb = [...LIMIT_BREAKS];
+      while (out.length < 3 && lb.length) out.push({ kind: 'limit', id: lb.splice(Math.floor(Math.random() * lb.length), 1)[0].id });
+    }
     return out;
   }
 
@@ -571,6 +607,9 @@ export class Game {
     } else if (c.kind === 'passive') {
       this.passives.set(c.id, c.level);
       if (c.id === 'heart') this.hp = Math.min(this.maxHp + PASSIVES.heart.per, this.hp + PASSIVES.heart.per);
+      this.recalc();
+    } else if (c.kind === 'limit') {
+      this.limits[c.id] = (this.limits[c.id] ?? 0) + 1;
       this.recalc();
     } else {
       this.hp = Math.min(this.maxHp, this.hp + 40);
@@ -660,7 +699,7 @@ export class Game {
     if (win) sfx.win(); else sfx.lose();
     this.hooks.end({
       difficulty: this.difficulty, win, reason, time: this.time, kills: this.kills, level: this.level, boss: this.bossId, champions: this.championsBeaten,
-      bestCombo: this.bestCombo, treasure: this.treasure, stolen: this.stolen, escapes: this.escapes,
+      bestCombo: this.bestCombo, treasure: this.treasure, stolen: this.stolen, escapes: this.escapes, allPicksAt: this.allPicksAt, night: this.night,
     });
   }
 
@@ -760,6 +799,7 @@ export class Game {
     let band = WAVES[0];
     for (const w of WAVES) if (this.time >= w.from) band = w;
     const entries = Object.entries(band.mix) as [HeroKind, number][];
+    for (const c of COUNTERS) if (this.night >= c.from) entries.push([c.kind, c.weight * (this.counterBoost.get(c.kind) ?? 1)]);
     let roll = Math.random() * entries.reduce((s, [, n]) => s + n, 0);
     for (const [k, n] of entries) { roll -= n; if (roll <= 0) return k; }
     return 'noob';
@@ -780,7 +820,7 @@ export class Game {
 
   /** How much tougher heroes are right now, including the difficulty tier. */
   private heroToughness(): number {
-    return (1 + this.time / RUN.hpGrowthPeriod) * this.difficulty.hp;
+    return (1 + this.time / RUN.hpGrowthPeriod) * (1 + NIGHT_TOUGHNESS * this.night) * this.difficulty.hp;
   }
 
   private addHero(kind: HeroKind, x: number, z: number): Hero {
@@ -793,8 +833,9 @@ export class Game {
       tag: null, label: null, final: false, aura: null,
       variant: Math.random() < 0.5 ? 0 : 1, champ: 0, turn: x < this.x ? 1 : -1,
       action: kind === 'archer' ? 'shoot' : kind === 'healer' ? 'raise' : 'swing', actT: 0, actDur: 0.4, hitT: 0,
-      goal: kind === 'rogue' ? 'loot' : kind !== 'champion' && Math.random() < this.lootShare() ? 'loot' : 'boss',
+      goal: def.saboteur ? 'sabotage' : kind === 'rogue' ? 'loot' : kind !== 'champion' && !def.flying && !def.shield && Math.random() < this.lootShare() ? 'loot' : 'boss',
       carry: 0, grabT: 0, slowT: 0,
+      shield: def.shield === true, target: null, workT: 0, bossLaunch: false, lastHit: 'boss',
     };
     // A few regular heroes wear visible gamer tags so the crowd reads as "other players".
     if (kind !== 'champion' && this.labels < MAX_LABELS && Math.random() < 0.06) {
@@ -833,6 +874,7 @@ export class Game {
       h.hitT = Math.max(0, h.hitT - dt);
       if (h.air) { this.fly(h, dt); continue; }
       if (h.goal === 'loot' && this.heist(h, dt, decay)) continue;
+      if (h.goal === 'sabotage' && this.sabotage(h, dt, decay)) continue;
       let dx = this.x - h.x, dz = this.z - h.z;
       const d = Math.hypot(dx, dz) || 0.001;
       dx /= d; dz /= d;
@@ -850,7 +892,7 @@ export class Game {
       let speed = def.speed;
       let mx = dx, mz = dz;
       // Beyond arm's reach, heroes follow the castle's walkable path to the boss instead of walking into walls.
-      if (d > 3) { const st = this.castle.steer('boss', h.x, h.z); if (st) { mx = st[0]; mz = st[1]; } }
+      if (d > 3 && !def.flying) { const st = this.castle.steer('boss', h.x, h.z); if (st) { mx = st[0]; mz = st[1]; } }
       if (h.slowT > 0) { h.slowT -= dt; speed *= CASTLE.spikeSlow; }
       if (def.dash) {
         h.dashCd -= dt;
@@ -888,7 +930,7 @@ export class Game {
       const px = h.x, pz = h.z;
       h.x += (mx * speed + h.kx) * dt;
       h.z += (mz * speed + h.kz) * dt;
-      [h.x, h.z] = this.castle.collide(h.x, h.z, px, pz);
+      if (!def.flying) [h.x, h.z] = this.castle.collide(h.x, h.z, px, pz);
       h.kx *= decay; h.kz *= decay;
 
       // Crowd separation keeps the horde reading as a crowd rather than one blob.
@@ -910,7 +952,7 @@ export class Game {
       }
     }
     if (contact > 0) {
-      const dealt = Math.min(contact, RUN.contactCap + this.time / RUN.contactGrowth) * dt;
+      const dealt = Math.min(contact, (RUN.contactCap + this.time / RUN.contactGrowth) * this.difficulty.damage) * dt;
       this.taken.contact += dealt;
       this.hurtBoss(dealt);
     }
@@ -976,6 +1018,101 @@ export class Game {
     return true;
   }
 
+  /**
+   * Trap Nerds walk to the nearest working trap and disarm it; Sappers walk to the nearest building and
+   * blow it up. With nothing left to sabotage they fight the boss. Returns false to fall back to that.
+   */
+  private sabotage(h: Hero, dt: number, decay: number): boolean {
+    const jam = h.def.saboteur === 'jam';
+    const valid = (b: Building | null) => !!b && this.castle.buildings.includes(b) && (!jam || (b.id !== 'wall' && b.jammed <= 0));
+    if (!valid(h.target)) {
+      h.target = null; h.workT = 0;
+      let best = Infinity;
+      for (const b of this.castle.buildings) {
+        if (!valid(b)) continue;
+        const [bx, bz] = this.castle.center(b.cx, b.cz);
+        const d = Math.hypot(bx - h.x, bz - h.z);
+        if (d < best) { best = d; h.target = b; }
+      }
+      if (!h.target) { h.goal = 'boss'; return false; }
+    }
+    const b = h.target as Building;
+    const [tx, tz] = this.castle.center(b.cx, b.cz);
+    let dx = tx - h.x, dz = tz - h.z;
+    const d = Math.hypot(dx, dz) || 0.001;
+    dx /= d; dz /= d;
+    if (Math.abs(dx) > 0.2) h.turn = approach(h.turn, Math.sign(dx), dt * 6);
+    // Walls are solid, so "arrived" is anywhere touching the target's cell.
+    if (d < CASTLE.cell * 0.9) {
+      if (jam) {
+        h.workT += dt;
+        if (h.actT <= 0) this.act(h, 'swing', 0.35);
+        if (Math.random() < dt * 6) this.fx.burst(tx, 0.6, tz, 0xffd23a, 2, 3, 0.1);
+        if (h.workT >= SABOTAGE.jamWork) {
+          b.jammed = SABOTAGE.jamFor;
+          h.workT = 0; h.target = null;
+          this.fx.burst(tx, 0.8, tz, 0x9aa4b1, 12, 5, 0.18);
+          this.hooks.killfeed(`🔧 A Trap Nerd disarmed your ${BUILDINGS[b.id].name}!`);
+        }
+      } else {
+        this.explode(h, tx, tz);
+      }
+    } else {
+      let speed = h.def.speed;
+      if (h.slowT > 0) { h.slowT -= dt; speed *= CASTLE.spikeSlow; }
+      h.phase += dt * speed * 2.2;
+      const px = h.x, pz = h.z;
+      const st = this.castle.steer('vault', h.x, h.z);
+      // Head for the target, but follow the castle's paths when a wall is in the way.
+      const mx = this.castle.isBlocked(h.x + dx * 1.2, h.z + dz * 1.2) && st && d > CASTLE.cell * 1.5 ? st[0] : dx;
+      const mz = this.castle.isBlocked(h.x + dx * 1.2, h.z + dz * 1.2) && st && d > CASTLE.cell * 1.5 ? st[1] : dz;
+      h.x += (mx * speed + h.kx) * dt;
+      h.z += (mz * speed + h.kz) * dt;
+      [h.x, h.z] = this.castle.collide(h.x, h.z, px, pz);
+    }
+    h.kx *= decay; h.kz *= decay;
+    const bx = h.x - this.x, bz = h.z - this.z;
+    const bd = Math.hypot(bx, bz) || 0.001;
+    const touch = this.radius + h.def.radius;
+    if (bd < touch) { h.x = this.x + (bx / bd) * touch; h.z = this.z + (bz / bd) * touch; }
+    return true;
+  }
+
+  /** A sapper's bomb: damages every building nearby, destroys the ones it breaks, and takes the sapper with it. */
+  private explode(h: Hero, x: number, z: number): void {
+    let broke = 0;
+    for (const b of [...this.castle.buildings]) {
+      const [bx, bz] = this.castle.center(b.cx, b.cz);
+      if (Math.hypot(bx - x, bz - z) > SABOTAGE.sapRadius) continue;
+      b.hp -= SABOTAGE.sapDamage;
+      if (b.hp <= 0) { this.castle.remove(b); broke++; this.fx.burst(bx, 0.8, bz, 0xc08a4c, 16, 7, 0.24); }
+    }
+    this.fx.ring(x, z, SABOTAGE.sapRadius, 0xff9a1a, 0.35);
+    this.fx.burst(x, 1, z, 0x2a2a2a, 20, 8, 0.25);
+    this.world.addShake(0.35);
+    sfx.stomp();
+    if (broke) this.hooks.killfeed(`💥 A Sapper blew up ${broke} of your buildings!`);
+    h.lastHit = 'boss';
+    h.hp = 0;
+    this.kill(h);
+  }
+
+  /** Gold to fix every damaged building: half the price of the missing health. */
+  repairCost(): number {
+    let c = 0;
+    for (const b of this.castle.buildings) c += (1 - b.hp / b.maxHp) * BUILDINGS[b.id].cost * SABOTAGE.repairShare;
+    return Math.ceil(c);
+  }
+
+  repairAll(): boolean {
+    const cost = this.repairCost();
+    if (this.phase !== 'build' || cost <= 0 || this.treasure - cost < 1) return false;
+    this.treasure -= cost;
+    for (const b of this.castle.buildings) b.hp = b.maxHp;
+    sfx.coin();
+    return true;
+  }
+
   private escape(h: Hero): void {
     h.alive = false;
     this.stolen += h.carry;
@@ -1037,16 +1174,32 @@ export class Game {
 
   private hurtBoss(amount: number): void {
     this.hp -= amount;
+    this.nightDamage += amount;
     if (this.hurt <= 0.05) sfx.hurt();
     this.hurt = 0.2;
     // The "ouch" face is rationed: under constant contact damage it would otherwise never leave.
     if (this.ouchCd <= 0) { this.ouch = 0.35; this.ouchCd = 1.4; }
   }
 
-  damage(h: Hero, base: number, kx = 0, kz = 0): void {
+  /**
+   * `src` is the boss (its upgrades, frenzy and crits apply) or a building type (flat damage, so traps
+   * do not grow with the boss's build). Shieldbearers ignore buildings until the boss breaks the shield.
+   */
+  damage(h: Hero, base: number, kx = 0, kz = 0, src: 'boss' | BuildingId = 'boss'): void {
     if (!h.alive) return;
-    const crit = Math.random() < 0.1;
-    const dmg = base * this.dmgMul * (this.frenzy > 0 ? 1.5 : 1) * (crit ? 2 : 1);
+    if (src !== 'boss' && h.shield) {
+      if (Math.random() < 0.2) this.fx.burst(h.x, 1.4, h.z, 0xdfe6ee, 3, 3, 0.12);
+      return;
+    }
+    if (src === 'boss' && h.shield) {
+      h.shield = false;
+      this.fx.burst(h.x, 1.4, h.z, 0xd8263a, 14, 6, 0.22);
+      this.fx.number(h.x, 2.6 * h.def.scale, h.z, 0, true, '#ffd23a');
+      sfx.stomp();
+    }
+    const crit = src === 'boss' && Math.random() < 0.1;
+    const dmg = src === 'boss' ? base * this.dmgMul * (this.frenzy > 0 ? 1.5 : 1) * (crit ? 2 : 1) : base;
+    h.lastHit = src;
     h.hp -= dmg;
     h.flash = 0.1;
     h.hitT = 0.22;
@@ -1054,7 +1207,7 @@ export class Game {
     // Champions shrug off most knockback so they stay threatening.
     const kb = h.kind === 'champion' ? 0.15 : h.kind === 'knight' ? 0.5 : 1;
     h.kx += kx * kb; h.kz += kz * kb;
-    if (!h.air && h.kind !== 'champion' && Math.hypot(h.kx, h.kz) > PHYSICS.launchAt) this.launch(h);
+    if (!h.air && h.kind !== 'champion' && !h.def.flying && Math.hypot(h.kx, h.kz) > PHYSICS.launchAt) this.launch(h, 0, src === 'boss');
     this.fx.number(h.x, 1.8 * h.def.scale, h.z, dmg, crit);
     sfx.hit();
     if (h.kind === 'champion') this.rage = Math.min(RUN.rageMax, this.rage + dmg * 0.02);
@@ -1065,6 +1218,7 @@ export class Game {
     h.alive = false;
     this.kills++;
     this.nightKills++;
+    if (h.lastHit !== 'boss') this.nightBuildingKills.set(h.lastHit, (this.nightBuildingKills.get(h.lastHit) ?? 0) + 1);
     this.rage = Math.min(RUN.rageMax, this.rage + 1);
     this.fx.burst(h.x, 0.8, h.z, h.def.body, 8, 6);
     this.fx.burst(h.x, 1.2, h.z, h.def.head, 4, 5);
@@ -1098,7 +1252,8 @@ export class Game {
       this.gems.push({ x: h.x, z: h.z, value: 0, tier: 0, pulled: false, spin: 0, snack: true });
       return;
     }
-    const value = h.def.xp;
+    // Harder tiers spawn more heroes; dividing keeps that from also handing out more XP.
+    const value = h.def.xp / this.difficulty.spawn;
     if (this.gems.length >= RUN.maxGems) {
       const g = this.gems[Math.floor(Math.random() * this.gems.length)];
       if (g.snack) return;
@@ -1110,8 +1265,11 @@ export class Game {
 
   // ---------- Physics ----------
 
-  private launch(h: Hero, lift = 0): void {
+  /** Only launches the boss causes feed the combo; trap launches still bowl heroes over. */
+  private launch(h: Hero, lift = 0, byBoss = true): void {
     h.air = true;
+    h.bossLaunch = byBoss;
+    h.shield = false;
     h.vy = 5 + Math.hypot(h.kx, h.kz) * 0.35 + lift;
     h.y = Math.max(h.y, 0.05);
     if (Math.random() < 0.06 && this.chatter.busy < 3) this.chatter.say(h, pick(LINES.launched), 2.4 * h.def.scale);
@@ -1131,16 +1289,17 @@ export class Game {
       this.near(h.x, h.z, h.def.radius, (o, ox, oz, od) => {
         if (o === h || o.air || !h.alive) return;
         const crash = (PHYSICS.crashDamage + speed * PHYSICS.crashPerSpeed);
-        if (o.kind === 'champion') { this.damage(o, crash); h.kx *= -0.3; h.kz *= -0.3; return; }
+        if (o.kind === 'champion') { this.damage(o, crash, 0, 0, h.bossLaunch ? 'boss' : 'pad'); h.kx *= -0.3; h.kz *= -0.3; return; }
         // Pass momentum along, fanned out a little, so a hit turns into a bowling strike.
         const n = od || 1;
         const t = PHYSICS.transfer;
         o.kx = h.kx * t + (ox / n) * speed * 0.35;
         o.kz = h.kz * t + (oz / n) * speed * 0.35;
-        this.launch(o);
+        this.launch(o, 0, h.bossLaunch);
         h.kx *= 0.8; h.kz *= 0.8;
-        this.addCombo(o);
-        this.damage(o, crash);
+        if (h.bossLaunch) this.addCombo(o);
+        else this.comboT = Math.max(this.comboT, 0.5);
+        this.damage(o, crash, 0, 0, h.bossLaunch ? 'boss' : 'pad');
       });
     }
     if (h.y <= 0) {
@@ -1350,37 +1509,38 @@ export class Game {
     for (const b of this.castle.buildings) {
       b.cd -= dt;
       b.bounce = Math.max(0, b.bounce - dt * 4);
+      if (b.jammed > 0) { b.jammed -= dt; continue; }
       const [x, z] = this.castle.center(b.cx, b.cz);
       switch (b.id) {
         case 'spikes':
           this.near(x, z, CASTLE.cell * 0.55, (h) => {
-            if (h.air) return;
+            if (h.air || h.def.flying) return;
             h.slowT = 0.3;
             if (h.trapCd > 0) return;
             h.trapCd = CASTLE.spikeEvery;
-            this.damage(h, CASTLE.spikeDamage);
+            this.damage(h, CASTLE.spikeDamage, 0, 0, 'spikes');
           });
           break;
         case 'pad':
           this.near(x, z, 0.9, (h) => {
-            if (h.air || h.kind === 'champion' || h.trapCd > 0) return;
+            if (h.air || h.def.flying || h.kind === 'champion' || h.trapCd > 0) return;
             h.trapCd = 0.5;
             // Castle pads throw heroes back toward the gates, through whoever is following them in.
             let dx = h.x, dz = h.z;
             const d = Math.hypot(dx, dz) || 1;
             dx /= d; dz /= d;
             h.kx = dx * TRAPS.springPower; h.kz = dz * TRAPS.springPower;
-            this.launch(h, 6);
+            this.launch(h, 6, false);
             b.bounce = 1;
-            this.damage(h, CASTLE.padDamage);
+            this.damage(h, CASTLE.padDamage, 0, 0, 'pad');
           });
           break;
         case 'saw':
           this.near(x, z, TRAPS.sawRadius, (h, dx, dz, d) => {
-            if (h.trapCd > 0) return;
+            if (h.trapCd > 0 || h.def.flying) return;
             h.trapCd = TRAPS.sawHitEvery;
             const n = d || 1;
-            this.damage(h, CASTLE.sawDamage, (-dz / n) * 8 + (dx / n) * 3, (dx / n) * 8 + (dz / n) * 3);
+            this.damage(h, CASTLE.sawDamage, (-dz / n) * 8 + (dx / n) * 3, (dx / n) * 8 + (dz / n) * 3, 'saw');
             this.fx.burst(h.x, 0.6, h.z, 0xfff27a, 3, 4, 0.12);
           });
           break;
@@ -1393,7 +1553,7 @@ export class Game {
           if (!t || this.shots.length >= MAX_SHOTS) break;
           b.cd = CASTLE.towerEvery;
           const dx = t.x - x, dz = t.z - z, len = Math.hypot(dx, dz) || 1;
-          this.shots.push({ x, z, vx: (dx / len) * 18, vz: (dz / len) * 18, life: 0.9, dmg: CASTLE.towerDamage, pierce: 1, hit: new Set(), enemy: false });
+          this.shots.push({ x, z, vx: (dx / len) * 18, vz: (dz / len) * 18, life: 0.9, dmg: CASTLE.towerDamage, pierce: 1, hit: new Set(), enemy: false, src: 'tower' });
           break;
         }
         default:
@@ -1414,7 +1574,7 @@ export class Game {
           if (s.hit?.has(h)) return;
           s.hit?.add(h);
           const sp = Math.hypot(s.vx, s.vz) || 1;
-          this.damage(h, s.dmg, (s.vx / sp) * 5, (s.vz / sp) * 5);
+          this.damage(h, s.dmg, (s.vx / sp) * 5, (s.vz / sp) * 5, s.src ?? 'boss');
           this.fx.burst(s.x, 0.8, s.z, 0xff7a1a, 4, 4, 0.16);
           s.pierce--;
           if (s.pierce <= 0) { s.life = 0; return true; }
@@ -1652,7 +1812,7 @@ export class Game {
         this.tmp.position.y = 0.25 + b.bounce * 0.6; this.tmp.updateMatrix();
         this.mSpringTop.setMatrixAt(sp++, this.tmp.matrix);
       } else if (b.id === 'saw') {
-        this.tmp.position.set(bx, TRAPS.sawRadius * 0.6, bz); this.tmp.rotation.set(t * 18, 0, Math.PI / 2); this.tmp.scale.setScalar(1); this.tmp.updateMatrix();
+        this.tmp.position.set(bx, TRAPS.sawRadius * 0.6, bz); this.tmp.rotation.set(b.jammed > 0 ? 0 : t * 18, 0, Math.PI / 2); this.tmp.scale.setScalar(1); this.tmp.updateMatrix();
         this.mSaw.setMatrixAt(sw++, this.tmp.matrix);
       }
     }
@@ -1679,7 +1839,7 @@ export class Game {
       if (!h.alive) continue;
       const size = this.standeeSize(h);
       p.rig.draw(this.castIndex(h), {
-        x: h.x, z: h.z, y: h.air ? h.y : 0, size, face: h.turn,
+        x: h.x, z: h.z, y: h.air ? h.y : h.def.flying ? 1.1 + Math.sin(now * 3 + h.phase) * 0.15 : 0, size, face: h.turn,
         roll: h.air ? h.spin : 0,
         walk: h.air ? 0 : 1, phase: h.phase, time: now, seed: h.dashCd * 7 + h.variant,
         action: h.action, act: h.actT > 0 ? 1 - h.actT / h.actDur : 0,
@@ -1722,9 +1882,12 @@ export class Game {
     const flat = Math.PI / 2 - this.world.standeeTilt;
     for (const b of this.castle.buildings) {
       const [bx, bz] = this.castle.center(b.cx, b.cz);
-      if (b.id === 'wall') p.castle.push({ x: bx, y: 0, z: bz, w: 2.3, h: 2.3, cell: castleCell('wall'), face: 1 });
-      else if (b.id === 'tower') p.castle.push({ x: bx, y: 0, z: bz, w: 3.2, h: 3.2, cell: castleCell('tower'), face: 1 });
-      else if (b.id === 'spikes') p.castle.push({ x: bx, y: 0.03, z: bz + CASTLE.cell * 0.5, w: CASTLE.cell, h: CASTLE.cell, cell: castleCell('spikes'), face: 1, lean: flat });
+      // Disarmed buildings blink; damaged ones sag a little so repairs are easy to spot.
+      const flash = b.jammed > 0 ? 0.35 + Math.sin(now * 10) * 0.3 : 0;
+      const sag = 0.75 + 0.25 * (b.hp / b.maxHp);
+      if (b.id === 'wall') p.castle.push({ x: bx, y: 0, z: bz, w: 2.3, h: 2.3 * sag, cell: castleCell('wall'), face: 1, flash, roll: (1 - sag) * 0.4 });
+      else if (b.id === 'tower') p.castle.push({ x: bx, y: 0, z: bz, w: 3.2, h: 3.2 * sag, cell: castleCell('tower'), face: 1, flash, roll: (1 - sag) * 0.3 });
+      else if (b.id === 'spikes') p.castle.push({ x: bx, y: 0.03, z: bz + CASTLE.cell * 0.5, w: CASTLE.cell, h: CASTLE.cell, cell: castleCell('spikes'), face: 1, lean: flat, flash });
     }
     p.castle.end();
     this.drawGrid();
@@ -1772,6 +1935,8 @@ export class Game {
   }
 
   private castIndex(h: Hero): number {
+    // A Shieldbearer whose shield broke is drawn as a plain knight, so the change is visible.
+    if (h.kind === 'shieldbearer' && !h.shield) return CAST.indexOf('knight');
     return CAST.indexOf(castFor(h.kind, h.variant, h.champ));
   }
 

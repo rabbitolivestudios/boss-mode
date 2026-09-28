@@ -50,6 +50,7 @@ const game: Game = new Game(world, byId('labels'), {
     writeSave(game.save);
     buildUi.show(night);
   },
+  challenger: (kind, text) => buildUi.challenger(kind, text),
   dawn: (report) => {
     ui.hud(false);
     ui.clearBanner();

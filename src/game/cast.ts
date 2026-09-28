@@ -12,15 +12,16 @@ const FIT = 0.86;
 
 export type CastId =
   | 'noob' | 'noob2' | 'archer' | 'archer2' | 'knight' | 'knight2' | 'sweat' | 'sweat2' | 'healer' | 'healer2'
-  | 'rogue' | 'rogue2' | 'goblin' | 'tryhard' | 'clutch' | 'chosen';
+  | 'rogue' | 'rogue2' | 'shieldbearer' | 'glider' | 'nerd' | 'sapper' | 'goblin' | 'tryhard' | 'clutch' | 'chosen';
 
-export const CAST: CastId[] = ['noob', 'noob2', 'archer', 'archer2', 'knight', 'knight2', 'sweat', 'sweat2', 'healer', 'healer2', 'rogue', 'rogue2', 'goblin', 'tryhard', 'clutch', 'chosen'];
+export const CAST: CastId[] = ['noob', 'noob2', 'archer', 'archer2', 'knight', 'knight2', 'sweat', 'sweat2', 'healer', 'healer2', 'rogue', 'rogue2', 'shieldbearer', 'glider', 'nerd', 'sapper', 'goblin', 'tryhard', 'clutch', 'chosen'];
 
 /** Which drawing a hero uses: two outfits per class for crowd variety, and a unique look per champion. */
 export function castFor(kind: HeroKind | 'goblin', variant: number, championIndex = 0): CastId {
   if (kind === 'champion') return (['tryhard', 'clutch', 'chosen'] as const)[championIndex] ?? 'tryhard';
   if (kind === 'goblin') return 'goblin';
-  return (variant ? `${kind}2` : kind) as CastId;
+  const withVariants = ['noob', 'archer', 'knight', 'sweat', 'healer', 'rogue'];
+  return (variant && withVariants.includes(kind) ? `${kind}2` : kind) as CastId;
 }
 
 /** Puppet pieces in back-to-front draw order. */
@@ -141,6 +142,11 @@ function piece(look: Look, part: PartId): HTMLCanvasElement | null {
   g.translate(-64, -128 + shortBy(look));
   if (!drawPart(look, part, g)) return null;
   return cutout(c, 4 * S);
+}
+
+/** One cast member in its neutral pose, for "New challenger!" cards. */
+export function castPortrait(id: CastId): HTMLCanvasElement {
+  return portrait(LOOKS[id]);
 }
 
 /** The whole character in its neutral pose, for menus and review sheets. */
@@ -351,6 +357,108 @@ const rogueLook = (cloak: string, mask: string): Look => ({
   },
 });
 
+const shieldLook: Look = {
+  skin: '#ffcfa6', shirt: '#6c7a8f', pants: '#3b3f58', shoes: '#2a2a3a',
+  face: (g) => {
+    eyes(g, 68, 36, { size: 5.5, gap: 13, look: 1.4, lid: 2 });
+    brows(g, 68, 27, 13, 2);
+    line(g, 2.5, INK, [[72, 47], [82, 47]]);
+  },
+  hat: (g) => {
+    const helm = () => { g.moveTo(40, 30); g.quadraticCurveTo(40, 8, 64, 8); g.quadraticCurveTo(88, 8, 88, 30); g.closePath(); };
+    blob(g, '#9aa4b1', helm);
+    shine(g, 54, 16, 8, 3);
+    line(g, 4, '#9aa4b1', [[64, 8], [64, 0]]);
+  },
+  // A door-sized shield held in front: this is the hero buildings cannot hurt.
+  hand: (g) => {
+    g.save(); g.rotate(0.35); g.translate(8, -30);
+    const tower = () => g.roundRect(-18, 0, 36, 56, 8);
+    blob(g, '#d8263a', tower, 3.5);
+    shade(g, tower, 20, 56, 0.25);
+    blob(g, '#e9e4d4', () => g.roundRect(-12, 6, 24, 44, 5), 2.5);
+    blob(g, '#ffd23a', () => { g.moveTo(0, 14); g.lineTo(8, 28); g.lineTo(0, 42); g.lineTo(-8, 28); g.closePath(); }, 2);
+    for (const [x, y] of [[-14, 4], [14, 4], [-14, 52], [14, 52]]) dot(g, x, y, 2.5, '#9aa4b1');
+    g.restore();
+  },
+};
+
+const gliderLook: Look = {
+  skin: '#ffcfa6', shirt: '#29a3ff', pants: '#2a4a6a', shoes: '#ffffff',
+  // Paper glider wings on the back: flying heroes skip walls and floor traps.
+  back: (g) => {
+    for (const [dir, fill] of [[-1, '#ffffff'], [1, '#e9f6ff']] as const) {
+      const wing = () => { g.moveTo(58, 66); g.quadraticCurveTo(58 + dir * 40, 40, 58 + dir * 58, 58); g.quadraticCurveTo(58 + dir * 34, 70, 60, 78); g.closePath(); };
+      blob(g, fill, wing, 3);
+      line(g, 1.5, 'rgba(41,163,255,0.6)', [[60, 70], [58 + dir * 50, 56]]);
+    }
+  },
+  face: (g) => {
+    eyes(g, 68, 36, { size: 6.5, gap: 13, look: 1.4 });
+    grin(g, 76, 46, 12, 5);
+  },
+  hat: (g) => {
+    blob(g, '#8a5a2b', () => { g.moveTo(40, 30); g.quadraticCurveTo(40, 10, 64, 10); g.quadraticCurveTo(88, 10, 88, 30); g.closePath(); });
+    for (const x of [62, 78]) blob(g, '#9ff3ff', () => g.arc(x, 24, 7, 0, Math.PI * 2), 2.5);
+    blob(g, '#ff3d5a', () => { g.moveTo(44, 50); g.quadraticCurveTo(24, 56, 14, 48); g.quadraticCurveTo(26, 62, 48, 58); g.closePath(); }, 2);
+  },
+  hand: (g) => {
+    g.save(); g.rotate(-2.2);
+    blob(g, '#9aa4b1', () => g.roundRect(-3, 4, 6, 22, 3), 2);
+    g.restore();
+  },
+};
+
+const nerdLook: Look = {
+  skin: '#ffcfa6', shirt: '#ffa31a', pants: '#2f5dff', shoes: '#6b4424',
+  torso: (g) => {
+    blob(g, '#6b4424', () => g.roundRect(45, 84, 38, 7, 2), 2);
+    for (const x of [52, 62, 72]) blob(g, '#9aa4b1', () => g.roundRect(x, 88, 6, 10, 2), 1.5);
+  },
+  face: (g) => {
+    for (const x of [66, 80]) { blob(g, '#dff6ff', () => g.arc(x, 36, 8, 0, Math.PI * 2), 3); dot(g, x + 2, 37, 3, INK); }
+    line(g, 3, INK, [[74, 36], [72, 36]]);
+    blob(g, '#fff', () => g.roundRect(70, 45, 9, 5, 2), 1.5);
+  },
+  hat: (g) => {
+    blob(g, '#ffd23a', () => { g.moveTo(38, 26); g.quadraticCurveTo(42, 4, 64, 4); g.quadraticCurveTo(86, 4, 90, 26); g.closePath(); });
+    blob(g, '#ffd23a', () => g.roundRect(34, 22, 60, 7, 3), 2.5);
+    shine(g, 54, 12, 8, 3);
+  },
+  // The wrench is the tell: this hero disarms traps.
+  hand: (g) => {
+    g.save(); g.rotate(-2.5);
+    blob(g, '#9aa4b1', () => g.roundRect(-3.5, 0, 7, 30, 3), 2.2);
+    blob(g, '#9aa4b1', () => { g.moveTo(-10, 28); g.lineTo(10, 28); g.lineTo(8, 40); g.lineTo(3, 36); g.lineTo(-3, 36); g.lineTo(-8, 40); g.closePath(); }, 2.2);
+    g.restore();
+  },
+};
+
+const sapperLook: Look = {
+  skin: '#e8b890', shirt: '#5a5a6a', pants: '#3b3f58', shoes: '#2a2a3a',
+  face: (g) => {
+    g.fillStyle = 'rgba(40,30,30,0.35)';
+    g.beginPath(); g.ellipse(72, 40, 16, 12, 0, 0, Math.PI * 2); g.fill();
+    eyes(g, 68, 36, { size: 6.5, gap: 13, look: 1.2 });
+    grin(g, 76, 47, 14, 6);
+  },
+  hat: (g) => {
+    blob(g, '#2a2a3a', () => { g.moveTo(40, 26); g.quadraticCurveTo(42, 8, 64, 8); g.quadraticCurveTo(86, 8, 88, 26); g.closePath(); });
+    blob(g, '#ff3d5a', () => g.roundRect(38, 22, 52, 6, 3), 2);
+  },
+  // A lit bomb held high: sappers blow up buildings.
+  hand: (g) => {
+    g.save(); g.rotate(-2.8); g.translate(0, 12);
+    blob(g, '#2a2a3a', () => g.arc(0, 8, 13, 0, Math.PI * 2), 3);
+    shine(g, -4, 3, 4, 3);
+    line(g, 3, '#8a5a2b', [[6, -2], [12, -10]]);
+    g.shadowColor = '#ffd23a'; g.shadowBlur = 10;
+    dot(g, 13, -12, 4, '#ffd23a');
+    dot(g, 13, -12, 2, '#fff');
+    g.restore();
+  },
+};
+
 const goblinLook: Look = {
   skin: '#5ccf4f', shirt: '#5ccf4f', pants: '#8a5a2b', shoes: '#4a8a3a', short: true,
   torso: (g) => { blob(g, '#8a5a2b', () => { g.moveTo(45, 82); g.lineTo(83, 82); g.lineTo(78, 98); g.lineTo(64, 92); g.lineTo(50, 98); g.closePath(); }, 2); },
@@ -470,6 +578,10 @@ const LOOKS: Record<CastId, Look> = {
   healer2: healerLook('#c68a5e', '#ffc93a'),
   rogue: rogueLook('#5a3a8a', '#2a1f3d'),
   rogue2: rogueLook('#3f5a4a', '#1f2a24'),
+  shieldbearer: shieldLook,
+  glider: gliderLook,
+  nerd: nerdLook,
+  sapper: sapperLook,
   goblin: goblinLook,
   tryhard: tryhardLook,
   clutch: clutchLook,

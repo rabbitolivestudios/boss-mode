@@ -1,4 +1,4 @@
-import { BOSSES, DEFAULT_TIER, DIFFICULTIES, NIGHTS, OPEN_TIERS, PASSIVES, TREASURE, WEAPONS, type BossId, type Difficulty } from './config';
+import { BOSSES, DEFAULT_TIER, DIFFICULTIES, LIMIT_BREAKS, NIGHTS, OPEN_TIERS, PASSIVES, TREASURE, WEAPONS, type BossId, type Difficulty } from './config';
 import { bossPortrait } from './bossart';
 import type { Choice, Game, Summary } from './game';
 
@@ -118,6 +118,9 @@ export class Ui {
       } else if (c.kind === 'passive') {
         const p = PASSIVES[c.id];
         icon = p.icon; name = p.name; desc = p.blurb; lv = `LV ${c.level}`; isNew = c.level === 1;
+      } else if (c.kind === 'limit') {
+        const l = LIMIT_BREAKS.find((x) => x.id === c.id);
+        icon = '⭐'; name = l?.name ?? 'Limit Break'; desc = l?.blurb ?? ''; lv = 'MAXED!';
       }
       btn.innerHTML = `<span class="ic">${icon}</span><span class="txt"><span class="nm">${name}</span> <span class="lv${isNew ? ' new' : ''}">${lv}</span><br><span class="ds">${desc}</span></span><span class="key">press ${i + 1}</span>`;
       btn.onclick = () => pickAt(i);
@@ -242,7 +245,9 @@ export class Ui {
       <div><b>${fmt(s.time)}${rec(s.time, best.time)}</b>survived</div>
       <div><b>${s.kills}${rec(s.kills, best.kills)}</b>heroes beaten</div>
       <div><b>${s.bestCombo}x${rec(s.bestCombo, best.combo)}</b>best combo</div>
-      <div><b>💰 ${s.treasure}</b>gold kept</div>`;
+      <div><b>💰 ${s.treasure}</b>gold kept</div>
+      <div><b>${s.win ? '7/7' : `${s.night + 1}/7`}</b>nights</div>
+      <div><b>${s.allPicksAt === null ? 'not yet' : fmt(s.allPicksAt)}</b>all upgrades maxed</div>`;
     const tier = DIFFICULTIES.indexOf(s.difficulty);
     const unlocks = s.win && tier === best.unlocked && tier + 1 < DIFFICULTIES.length;
     if (unlocks) $('end-sub').textContent += ` ${DIFFICULTIES[tier + 1].name.toUpperCase()} mode unlocked!`;
