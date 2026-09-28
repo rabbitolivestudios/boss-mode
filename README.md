@@ -42,6 +42,8 @@ npm run deploy         # builds and publishes to https://bossmode.mac-tbo.com
 npm run set-password   # sets or changes the /analytics password; nothing is written to a file
 ```
 
+The site is also connected to Cloudflare Workers Builds, so every push to `main` publishes it. With that setup the dashboard password can instead be a Worker secret named `ANALYTICS_PASSWORD`, added in the Cloudflare dashboard (boss-mode → Settings → Variables and Secrets, type Secret, at least 8 characters). Changing it signs everyone out of the dashboard.
+
 Landing art is rendered from the game's own drawing code: `node scripts/render-landing-art.mjs` (see the script header).
 
 ## Art

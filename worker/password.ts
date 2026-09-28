@@ -2,6 +2,11 @@
 export interface PasswordConfiguration {
   ANALYTICS_PASSWORD_VERIFIER?: string;
   ANALYTICS_SESSION_SECRET?: string;
+  /**
+   * The simpler setup for a site deployed from GitHub: the password itself as an encrypted Worker
+   * secret, typed into the Cloudflare dashboard. Used only when no verifier is configured.
+   */
+  ANALYTICS_PASSWORD?: string;
 }
 const COOKIE = "__Secure-bossmode_admin";
 const SESSION_SECONDS = 6 * 60 * 60;
@@ -28,10 +33,35 @@ function decode(value: string): Uint8Array {
   if (encode(bytes) !== value) throw new Error("invalid_encoding");
   return bytes;
 }
-function configuration(env: PasswordConfiguration) {
+interface Config {
+  /** Bound into every session, so changing the password signs everyone out. */
+  verifier: string;
+  key: Uint8Array;
+  check(password: string): Promise<boolean>;
+}
+async function sha256(text: string): Promise<Uint8Array> {
+  return new Uint8Array(await crypto.subtle.digest("SHA-256", encoder.encode(text)));
+}
+function same(a: Uint8Array, b: Uint8Array): boolean {
+  let difference = a.length ^ b.length;
+  for (let i = 0; i < Math.min(a.length, b.length); i++) difference |= a[i] ^ b[i];
+  return difference === 0;
+}
+async function configuration(env: PasswordConfiguration): Promise<Config> {
   const verifier = env.ANALYTICS_PASSWORD_VERIFIER;
+  if (!verifier) {
+    const plain = env.ANALYTICS_PASSWORD;
+    if (!plain || plain.length < 8 || plain.length > 200) throw new Error("unconfigured");
+    // Derived with fixed labels so they change with the password and never reveal it.
+    const target = await sha256(`boss-mode analytics check v1|${plain}`);
+    return {
+      verifier: `p.${encode(await sha256(`boss-mode analytics binding v1|${plain}`))}`,
+      key: await sha256(`boss-mode analytics session v1|${plain}`),
+      check: async (password) => same(await sha256(`boss-mode analytics check v1|${password}`), target),
+    };
+  }
   const secret = env.ANALYTICS_SESSION_SECRET;
-  if (!verifier || !secret) throw new Error("unconfigured");
+  if (!secret) throw new Error("unconfigured");
   const parts = verifier.split(".");
   if (parts.length !== 2 || verifier.length > 100 || secret.length > 100)
     throw new Error("unconfigured");
@@ -40,7 +70,17 @@ function configuration(env: PasswordConfiguration) {
     key = decode(secret);
   if (salt.length !== 16 || hash.length !== 32 || key.length !== 32)
     throw new Error("unconfigured");
-  return { verifier, salt, hash, key };
+  return {
+    verifier,
+    key,
+    check: async (password) => {
+      const material = await crypto.subtle.importKey("raw", encoder.encode(password), "PBKDF2", false, ["deriveBits"]);
+      const derived = new Uint8Array(
+        await crypto.subtle.deriveBits({ name: "PBKDF2", hash: "SHA-256", salt, iterations: 100000 }, material, 256),
+      );
+      return same(derived, hash);
+    },
+  };
 }
 async function binding(verifier: string): Promise<string> {
   return encode(
@@ -67,7 +107,7 @@ export async function authorizePassword(
   now = Date.now(),
 ): Promise<boolean> {
   try {
-    const config = configuration(env);
+    const config = await configuration(env);
     const header = request.headers.get("Cookie");
     if (!header || header.length > 16384) return false;
     const cookies = header
@@ -184,29 +224,8 @@ export async function passwordLogin(
     return loginPage(true, 400);
   }
   try {
-    const config = configuration(env);
-    const key = await crypto.subtle.importKey(
-      "raw",
-      encoder.encode(password),
-      "PBKDF2",
-      false,
-      ["deriveBits"],
-    );
-    const derived = new Uint8Array(
-      await crypto.subtle.deriveBits(
-        {
-          name: "PBKDF2",
-          hash: "SHA-256",
-          salt: config.salt,
-          iterations: 100000,
-        },
-        key,
-        256,
-      ),
-    );
-    let difference = 0;
-    for (let i = 0; i < 32; i++) difference |= derived[i] ^ config.hash[i];
-    if (difference !== 0) return loginPage(true, 401);
+    const config = await configuration(env);
+    if (!(await config.check(password))) return loginPage(true, 401);
     const seconds = Math.floor(now / 1000);
     const payload = encode(
       encoder.encode(
