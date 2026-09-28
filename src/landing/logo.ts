@@ -79,16 +79,20 @@ export async function drawLogo(width = 1600): Promise<HTMLCanvasElement> {
   return cutout(c, 18 * k);
 }
 
-/** The app icon: the crown on the game's night purple, for tabs and home screens. */
-export function drawIcon(size = 512): HTMLCanvasElement {
+/**
+ * The app icon: the crown on the game's night purple. Home-screen icons must be full squares, since
+ * iOS and Android cut their own corners and turn transparent corners black; tab icons get rounded ones.
+ */
+export function drawIcon(size = 512, rounded = false): HTMLCanvasElement {
   const [c, g] = canvas(size, size);
-  const r = size * 0.22;
-  const bg = g.createRadialGradient(size / 2, size * 0.35, size * 0.1, size / 2, size / 2, size * 0.7);
+  const bg = g.createRadialGradient(size / 2, size * 0.35, size * 0.1, size / 2, size / 2, size * 0.72);
   bg.addColorStop(0, '#6a3fd0'); bg.addColorStop(1, '#1b1033');
   g.fillStyle = bg;
   g.beginPath();
-  g.roundRect(0, 0, size, size, r);
+  if (rounded) g.roundRect(0, 0, size, size, size * 0.22);
+  else g.rect(0, 0, size, size);
   g.fill();
-  crown(g, size / 2, size * 0.56, size * 0.7, -0.12);
+  // Inside the central 80% so the crown survives Android's circular mask.
+  crown(g, size / 2, size * 0.57, size * 0.62, -0.12);
   return c;
 }

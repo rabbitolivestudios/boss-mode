@@ -20,5 +20,8 @@
     { "name": "READ_LIMITER", "namespace_id": "81530103", "simple": { "limit": 120, "period": 60 } },
     { "name": "LOGIN_LIMITER", "namespace_id": "81530104", "simple": { "limit": 6, "period": 60 } }
   ],
-  "observability": { "enabled": true }
+  "observability": { "enabled": true },
+  // Same Cloudflare account and domain as Footy Draft (footydraft.mac-tbo.com).
+  "account_id": "f22a506dedde3bb3837157cd47d5fe5c",
+  "routes": [{ "pattern": "bossmode.mac-tbo.com", "custom_domain": true }]
 }

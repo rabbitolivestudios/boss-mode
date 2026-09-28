@@ -38,7 +38,7 @@ The site runs on Cloudflare Workers, the same way as Footy Draft: `worker/` serv
 ```bash
 npm run worker:dev     # after npm run build; http://localhost:8787 (dashboard password from .dev.vars)
 npx wrangler login     # once, or set CLOUDFLARE_API_TOKEN (Workers edit permission)
-npm run deploy         # builds and publishes
+npm run deploy         # builds and publishes to https://bossmode.mac-tbo.com
 npm run set-password   # sets or changes the /analytics password; nothing is written to a file
 ```
 

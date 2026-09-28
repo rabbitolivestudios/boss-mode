@@ -55,7 +55,10 @@ try {
     fromAtlas(loot.lootAtlas(), loot.LOOT, 'loot', res);
     fromAtlas(castle.castleAtlas(), castle.CASTLE_ART, 'castle', res);
     res.logo = trim(await logo.drawLogo(1600));
-    res.icon = logo.drawIcon(512).toDataURL('image/png');
+    // App icons: full-square for home screens and installs, rounded for browser tabs.
+    for (const [name, size, rounded] of [['icon-512', 512, false], ['icon-192', 192, false], ['apple-touch-icon', 180, false], ['favicon-32', 32, true], ['favicon-16', 16, true], ['icon', 512, true]]) {
+      res[name] = logo.drawIcon(size, rounded).toDataURL('image/png');
+    }
     return res;
   });
   await browser.close();
@@ -65,11 +68,14 @@ try {
     const png = `${OUT}/${name}.png`;
     writeFileSync(png, Buffer.from(url.split(',')[1], 'base64'));
     // The icon stays PNG (browsers and home screens want PNG icons); everything else becomes WebP.
-    if (name === 'icon') continue;
+    if (name.startsWith('icon') || name.startsWith('favicon') || name === 'apple-touch-icon') continue;
     const r = spawnSync(ffmpeg, ['-y', '-loglevel', 'error', '-i', png, '-c:v', 'libwebp', '-quality', '88', `${OUT}/${name}.webp`]);
     if (r.status !== 0) throw new Error(`ffmpeg failed on ${name}`);
     rmSync(png);
   }
+  // Browsers still ask for /favicon.ico at the site root; build it from the two tab sizes.
+  const ico = spawnSync(ffmpeg, ['-y', '-loglevel', 'error', '-i', `${OUT}/favicon-32.png`, 'public/favicon.ico']);
+  if (ico.status !== 0) throw new Error('ffmpeg failed on favicon.ico');
   console.log(`rendered ${Object.keys(files).length} images into ${OUT}`);
 } finally {
   vite.kill();
