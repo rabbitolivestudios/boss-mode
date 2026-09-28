@@ -69,6 +69,7 @@ export interface BuildReport {
 
 export type GameEvent = EventContext & (
   | { type: 'visit' }
+  | { type: 'landing' }
   | { type: 'season_start'; season: string; boss: BossKey; tier: TierKey; continued: boolean }
   | { type: 'build'; build: BuildReport }
   | { type: 'night'; report: NightReport }
@@ -108,6 +109,8 @@ export interface Summary {
     newVisitors: number;
     returningVisitors: number;
     medianSessionMinutes: number | null;
+    /** Sessions that saw the landing page, and how many of those went on to open the game. */
+    landing: { sessions: number; played: number };
     daily: { date: string; sessions: number; seasons: number }[];
     devices: Count[];
     browsers: Count[];

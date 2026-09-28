@@ -1,8 +1,8 @@
-import { INK, blob, canvas, cutout, dot, line, pack, shade, shine, type G } from './ink';
+import { ART_SCALE, INK, blob, canvas, cutout, dot, line, pack, shade, shine, type G } from './ink';
 
 // Paper art for the treasure game: the vault at four fill levels, the gates, a thief's sack and a coin.
 
-const CELL = 192;
+const CELL = 192 * ART_SCALE;
 const S = CELL / 128;
 
 export const LOOT = ['vault3', 'vault2', 'vault1', 'vault0', 'gate', 'bag', 'coin'] as const;

@@ -15,7 +15,7 @@ export interface SessionRecord {
   device: string; browser: string; locale: string; country: string;
   /** Whether this session's visitor was first seen in it; null when the browser sent no visitor id. */
   newVisitor: boolean | null; visitorKey: string | null;
-  visit: boolean; seasons: string[];
+  visit: boolean; landing?: boolean; seasons: string[];
   settings: { music: boolean; sfx: boolean } | null;
   fps: [number, number][];
   errors: Record<string, number>;
@@ -59,6 +59,7 @@ export function normalize(raw: unknown): GameEvent {
   };
   switch (e.type) {
     case 'visit': return { ...ctx, type: 'visit' };
+    case 'landing': return { ...ctx, type: 'landing' };
     case 'season_start':
       return { ...ctx, type: 'season_start', season: id(e.season), boss: oneOf(BOSS_IDS, e.boss), tier: oneOf(TIER_IDS, e.tier), continued: bool(e.continued) };
     case 'build': {
@@ -108,6 +109,7 @@ export function addToSession(prev: SessionRecord, e: GameEvent, now: number): Se
   if (prev.events >= MAX_EVENTS_PER_SESSION) return null;
   const s: SessionRecord = { ...prev, lastAt: now, events: prev.events + 1, test: prev.test || e.test === true };
   if (e.type === 'visit') s.visit = true;
+  if (e.type === 'landing') s.landing = true;
   if (e.type === 'season_start' && !s.seasons.includes(e.season) && s.seasons.length < 100) s.seasons = [...s.seasons, e.season];
   if (e.type === 'settings') s.settings = { music: e.music, sfx: e.sfx };
   if (e.type === 'perf' && s.fps.length < 60) s.fps = [...s.fps, [e.fpsMedian, e.fpsLow]];
@@ -227,6 +229,7 @@ export function summarize(
     audience: {
       sessions: sessions.length, visitors: visitors.size, newVisitors, returningVisitors: visitors.size - newVisitors,
       medianSessionMinutes: median(lengths),
+      landing: { sessions: sessions.filter((s) => s.landing).length, played: sessions.filter((s) => s.landing && s.visit).length },
       daily: [...dailyMap].map(([date, v]) => ({ date, ...v })),
       devices: counts(sessions.map((s) => s.device)), browsers: counts(sessions.map((s) => s.browser)),
       locales: counts(sessions.map((s) => s.locale)), countries: counts(sessions.map((s) => s.country)),

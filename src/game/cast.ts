@@ -1,11 +1,11 @@
-import { INK, blob, canvas, cutout, dot, line, pack, shade, shine, type G } from './ink';
+import { ART_SCALE, INK, blob, canvas, cutout, dot, line, pack, shade, shine, type G } from './ink';
 import type { HeroKind } from './config';
 
 // The hero cast as paper puppets. Everyone shares one chibi body (big head, short limbs) cut into separate
 // paper pieces - cape, arms, legs, body, head - each with its own white border, so the renderer can
 // swing them around their joints like a split-pin puppet. Personality comes from outfit, face and gear.
 
-export const CELL = 160;
+export const CELL = 160 * ART_SCALE;
 const S = CELL / 128; // characters are designed on a 128px grid, rendered at CELL
 /** The design is shrunk slightly inside each cell so plumes, bows and swinging weapons never clip. */
 const FIT = 0.86;

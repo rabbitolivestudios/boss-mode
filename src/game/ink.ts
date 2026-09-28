@@ -3,6 +3,8 @@ import * as THREE from 'three';
 // Shared drawing kit for the paper look: ink-lined flat shapes, cut out with a white paper border.
 
 export const INK = '#2a1f3d';
+/** Renders every piece of art larger for landing-page stills (VITE_ART_SCALE=3); always 1 in the game. */
+export const ART_SCALE = Number(import.meta.env.VITE_ART_SCALE ?? 1) || 1;
 export type G = CanvasRenderingContext2D;
 
 export const hex = (n: number): string => `#${n.toString(16).padStart(6, '0')}`;

@@ -1,10 +1,10 @@
 import type { BossId } from './config';
-import { INK, blob, canvas, cutout, dot, line, pack, shade, shine, type G } from './ink';
+import { ART_SCALE, INK, blob, canvas, cutout, dot, line, pack, shade, shine, type G } from './ink';
 
 // The three bosses as big paper puppets. Each is cut into pieces (wing, tail, legs, body, head...) that
 // the renderer swings about their joints; faces have idle, blink and "ouch" versions.
 
-const CELL = 320;
+const CELL = 320 * ART_SCALE;
 const S = CELL / 256;
 /** Shrink inside the cell so flapping and wagging pieces never clip. */
 const FIT = 0.9;

@@ -41,6 +41,7 @@ function render(s: Summary): string {
     tile('Win rate', pct(winRate), `${fmt(se.wins)} wins`),
     tile('Nights reached', se.medianNights === null ? '–' : fmt(se.medianNights, 1), 'median per finished season'),
     tile('Retries', se.retriesPerSeason === null ? '–' : fmt(se.retriesPerSeason, 2), 'per finished season'),
+    tile('Landing page', fmt(a.landing.sessions), `${pct(a.landing.sessions ? (a.landing.played / a.landing.sessions) * 100 : null)} pressed play`),
   ].join('')}</div>`;
 
   const daily = card('Activity', 'Sessions per day (Chicago time). Hover a day for seasons started.',

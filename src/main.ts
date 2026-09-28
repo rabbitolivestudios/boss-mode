@@ -1,3 +1,5 @@
+// Self-hosted, so playing never sends a request to a font service.
+import '@fontsource/lilita-one/latin-400.css';
 import './style.css';
 import { BOSSES, NIGHTS, type BossId } from './game/config';
 import { BuildUi } from './game/buildui';

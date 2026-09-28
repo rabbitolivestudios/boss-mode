@@ -1,8 +1,8 @@
-import { INK, blob, canvas, cutout, dot, line, pack, shade, shine, type G } from './ink';
+import { ART_SCALE, INK, blob, canvas, cutout, dot, line, pack, shade, shine, type G } from './ink';
 
 // Paper art for castle buildings. Walls and towers stand up like the characters; spike pits lie flat.
 
-const CELL = 192;
+const CELL = 192 * ART_SCALE;
 const S = CELL / 128;
 
 export const CASTLE_ART = ['wall', 'spikes', 'tower'] as const;

@@ -1,0 +1,141 @@
+@import '@fontsource/lilita-one/latin-400.css';
+
+/* Landing tokens: the game's night purple, gold, pink and ink. The page is always dark, like the game. */
+:root {
+  color-scheme: dark;
+  --night: #1b1033;
+  --night-2: #2b1a55;
+  --violet: #50289f;
+  --gold: #ffd23a;
+  --gold-deep: #ff9d00;
+  --pink: #ff4fa3;
+  --cyan: #29e0ff;
+  --ink: #2a1f3d;
+  --paper: #fffaf0;
+  --text: #ffffff;
+  --text-soft: #d8cdf5;
+  --grass: #7cc653;
+  --grass-deep: #4f9a3a;
+  --display: 'Lilita One', 'Arial Black', system-ui, sans-serif;
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: var(--night); color: var(--text); font: 17px/1.5 ui-rounded, system-ui, -apple-system, 'Segoe UI', sans-serif; overflow-x: hidden; }
+img { max-width: 100%; }
+h1, h2, h3 { font-family: var(--display); font-weight: 400; margin: 0; letter-spacing: .01em; }
+h2 { font-size: clamp(34px, 6vw, 56px); text-align: center; color: var(--gold); text-shadow: 0 4px 0 #b8330b, 0 7px 0 var(--ink); margin-bottom: 18px; }
+.lead { text-align: center; color: var(--text-soft); margin: -6px auto 26px; max-width: 34em; padding: 0 16px; }
+
+/* ---------- Hero: the key art is layered paper cutouts over a night sky ---------- */
+/* Copy and scene get their own rows, so the marching heroes never run through the text. */
+.hero { position: relative; min-height: min(100svh, 980px); display: grid; grid-template-rows: auto minmax(300px, 1fr); overflow: hidden; isolation: isolate; }
+.sky { position: absolute; inset: 0; z-index: -3; background: radial-gradient(ellipse 80% 70% at 70% 25%, #7a44d9 0%, var(--violet) 35%, var(--night) 80%); }
+.moon { position: absolute; right: 9%; top: 9%; width: clamp(70px, 10vw, 140px); aspect-ratio: 1; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #fffbe0, #ffe27a 60%, #f5c542); border: 5px solid var(--ink); box-shadow: 0 0 0 6px #fff, 0 0 80px 20px rgba(255, 226, 122, .35); }
+.stars { position: absolute; inset: 0; background-image:
+  radial-gradient(2px 2px at 12% 18%, #fff 60%, transparent), radial-gradient(2px 2px at 28% 8%, #fff 60%, transparent),
+  radial-gradient(3px 3px at 45% 22%, #fff 60%, transparent), radial-gradient(2px 2px at 62% 12%, #fff 60%, transparent),
+  radial-gradient(2px 2px at 78% 30%, #fff 60%, transparent), radial-gradient(3px 3px at 90% 6%, #fff 60%, transparent),
+  radial-gradient(2px 2px at 8% 40%, #fff 60%, transparent), radial-gradient(2px 2px at 36% 36%, #fff 60%, transparent),
+  radial-gradient(2px 2px at 55% 4%, #fff 60%, transparent), radial-gradient(3px 3px at 20% 28%, #ffe27a 60%, transparent);
+  animation: twinkle 4s ease-in-out infinite alternate; }
+@keyframes twinkle { from { opacity: .6; } to { opacity: 1; } }
+
+.scene { position: relative; grid-row: 2; z-index: -1; min-height: 300px; }
+.hill { position: absolute; left: -2%; width: 104%; }
+.hill path { stroke: var(--ink); stroke-width: 5; vector-effect: non-scaling-stroke; }
+.hill.back { bottom: 22%; height: 70%; }
+.hill.back path { fill: var(--grass-deep); }
+.hill.front { bottom: -2%; height: 50%; filter: drop-shadow(0 -6px 0 #fff); }
+.hill.front path { fill: var(--grass); }
+
+.marchers { position: absolute; left: 0; bottom: 36%; width: 52%; height: 46%; display: flex; align-items: flex-end; gap: 1.2%; padding-left: 2%; animation: march 18s linear infinite; }
+.marchers img { height: 58%; width: auto; animation: bob .5s ease-in-out infinite alternate; animation-delay: var(--d); transform-origin: bottom center; }
+.marchers img.big { height: 74%; }
+@keyframes march { from { transform: translateX(-6%); } to { transform: translateX(10%); } }
+@keyframes bob { from { transform: translateY(0) rotate(-4deg); } to { transform: translateY(-10%) rotate(4deg); } }
+
+.fort { position: absolute; left: 40%; bottom: 12%; width: 34%; height: 46%; }
+.fort img { position: absolute; bottom: 0; height: auto; }
+.fort .tower { width: 17%; }
+.fort .t1 { left: 0; bottom: 6%; } .fort .t2 { right: 0; bottom: 6%; }
+.fort .wall { width: 14%; bottom: 4%; }
+.fort .w1 { left: 14%; } .fort .w2 { left: 25%; } .fort .w3 { right: 15%; }
+.fort .vault { width: 36%; left: 37%; bottom: 0; filter: drop-shadow(0 0 30px rgba(255, 210, 58, .7)); }
+.fort .coin { width: 7%; animation: coin 2.6s ease-in-out infinite; }
+.fort .c1 { left: 40%; bottom: 62%; } .fort .c2 { left: 55%; bottom: 72%; animation-delay: .8s; } .fort .c3 { left: 66%; bottom: 58%; animation-delay: 1.5s; }
+@keyframes coin { 0%, 100% { transform: translateY(0) rotate(-10deg); } 50% { transform: translateY(-40%) rotate(10deg); } }
+
+/* Mirrored so the boss faces the heroes marching in from the left. */
+.boss-hero { position: absolute; right: 3%; bottom: 10%; width: min(26%, 380px); scale: -1 1; animation: boss 3s ease-in-out infinite; transform-origin: bottom center; }
+@keyframes boss { 0%, 100% { transform: translateY(0) scale(1, 1); } 50% { transform: translateY(-4%) scale(1.02, .98); } }
+
+.hero-copy { grid-row: 1; justify-self: center; text-align: center; padding: calc(18px + env(safe-area-inset-top)) 16px 0; max-width: 760px; }
+.logo { width: min(520px, 86vw, 62vh); height: auto; filter: drop-shadow(0 10px 0 rgba(0, 0, 0, .25)); animation: pop .7s cubic-bezier(.2, 1.6, .4, 1) both; }
+@keyframes pop { from { transform: scale(.6) rotate(-6deg); opacity: 0; } }
+.tagline { font-family: var(--display); font-size: clamp(24px, 4.4vw, 38px); margin: 4px 0 6px; text-shadow: 0 3px 0 var(--ink); }
+.tagline b { color: var(--pink); font-weight: 400; }
+.sub { color: var(--text-soft); margin: 0 auto 20px; max-width: 30em; text-shadow: 0 2px 0 var(--night); }
+.small { font-size: 14px; color: var(--text-soft); margin: 12px 0 0; text-shadow: 0 2px 0 var(--night); }
+
+.play { display: inline-block; font-family: var(--display); font-size: clamp(26px, 4vw, 36px); color: var(--ink); text-decoration: none; background: linear-gradient(#ffe46a, var(--gold) 55%, var(--gold-deep)); border: 5px solid var(--ink); border-radius: 22px; padding: 12px 38px 14px; box-shadow: 0 0 0 5px #fff, 0 10px 0 5px var(--ink); transition: transform .12s; animation: nudge 2.4s ease-in-out infinite; }
+.play:hover, .play:focus-visible { transform: translateY(-4px) scale(1.04); outline: none; }
+.play:active { transform: translateY(4px); box-shadow: 0 0 0 5px #fff, 0 4px 0 5px var(--ink); }
+@keyframes nudge { 0%, 88%, 100% { rotate: 0deg; } 92% { rotate: -3deg; } 96% { rotate: 3deg; } }
+
+/* ---------- Sections ---------- */
+main { position: relative; background: linear-gradient(var(--grass) 0 24px, var(--night-2) 24px); padding-top: 60px; }
+section { padding: 56px 16px; max-width: 1120px; margin: 0 auto; }
+.video { max-width: 900px; margin: 0 auto; border: 6px solid var(--ink); border-radius: 20px; overflow: hidden; box-shadow: 0 0 0 6px #fff, 0 16px 0 6px rgba(0, 0, 0, .35); background: #000; aspect-ratio: 16 / 9; }
+.video video { display: block; width: 100%; height: 100%; }
+
+.steps, .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 28px; }
+.step, .boss { position: relative; background: var(--paper); color: var(--ink); border: 5px solid var(--ink); border-radius: 22px; box-shadow: 0 0 0 5px #fff, 0 12px 0 5px rgba(0, 0, 0, .3); padding: 22px 22px 24px; text-align: center; }
+.step:nth-child(1) { rotate: -1.5deg; } .step:nth-child(2) { rotate: 1deg; } .step:nth-child(3) { rotate: -.5deg; }
+.step img { height: 130px; width: auto; object-fit: contain; margin: -4px auto 8px; display: block; }
+.step .num { position: absolute; top: -18px; left: -14px; width: 52px; height: 52px; border-radius: 50%; display: grid; place-items: center; font-family: var(--display); font-size: 30px; background: var(--pink); color: #fff; border: 4px solid var(--ink); box-shadow: 0 0 0 4px #fff; }
+.step h3, .boss h3 { font-size: 28px; }
+.step p, .boss p { margin: 6px 0 0; }
+
+.boss { transition: transform .15s; }
+.boss:hover { transform: translateY(-6px) rotate(-1deg); }
+.boss img { height: 190px; width: auto; display: block; margin: -48px auto 6px; filter: drop-shadow(0 8px 0 rgba(0, 0, 0, .15)); }
+.boss .title { color: #7a55c9; font-weight: 700; margin: 0; }
+.cards { padding-top: 40px; }
+
+.gallery { display: grid; grid-template-columns: repeat(2, 1fr); gap: 18px; }
+@media (min-width: 760px) { .gallery { grid-template-columns: repeat(4, 1fr); } }
+.gallery figure { margin: 0; text-align: center; background: rgba(255, 255, 255, .06); border: 3px dashed rgba(255, 255, 255, .25); border-radius: 18px; padding: 14px 10px; }
+.gallery img { height: 130px; width: auto; transition: transform .15s; }
+.gallery figure:hover img { transform: rotate(-6deg) scale(1.08); }
+.gallery figcaption { color: var(--text-soft); font-size: 15px; }
+.gallery b { display: block; color: #fff; font-family: var(--display); font-weight: 400; font-size: 21px; }
+
+.board { list-style: none; margin: 0 auto; padding: 10px 16px; max-width: 620px; background: var(--paper); color: var(--ink); border: 5px solid var(--ink); border-radius: 22px; box-shadow: 0 0 0 5px #fff, 0 12px 0 5px rgba(0, 0, 0, .3); }
+.board li { display: grid; grid-template-columns: 40px 1fr auto; gap: 10px; align-items: center; padding: 8px 4px; border-bottom: 2px dashed #e6dcc6; font-weight: 600; }
+.board li:last-child { border-bottom: 0; }
+.board .rank { font-family: var(--display); font-size: 24px; color: #7a55c9; text-align: center; }
+.board li:nth-child(1) .rank { color: #e0a100; } .board li:nth-child(2) .rank { color: #8a8f99; } .board li:nth-child(3) .rank { color: #c0763a; }
+.board .meta { display: block; font-size: 13px; font-weight: 500; color: #6d6480; }
+.board .score { font-family: var(--display); font-size: 22px; }
+
+.final { position: relative; text-align: center; padding: 70px 16px 90px; overflow: hidden; }
+.final h2 { margin-bottom: 26px; }
+.peek { position: absolute; bottom: 0; width: min(24vw, 220px); }
+.peek.left { left: -3%; rotate: 8deg; } .peek.right { right: -2%; rotate: -8deg; }
+
+footer { text-align: center; color: var(--text-soft); padding: 26px 16px calc(34px + env(safe-area-inset-bottom)); background: var(--night); font-size: 14px; border-top: 4px solid var(--ink); }
+footer p { max-width: 44em; margin: 6px auto; }
+.privacy { font-size: 13px; opacity: .85; }
+
+@media (max-width: 700px) {
+  .hero { min-height: 0; grid-template-rows: auto 260px; }
+  .scene { min-height: 260px; }
+  .marchers { width: 58%; bottom: 44%; height: 26%; }
+  .fort { left: 30%; width: 48%; height: 44%; bottom: 8%; }
+  .boss-hero { width: 32%; right: 1%; bottom: 22%; }
+  .peek { width: 26vw; opacity: .9; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
