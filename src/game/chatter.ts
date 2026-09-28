@@ -7,6 +7,8 @@ export const LINES = {
   launched: ['AAAAH', 'wheee!', 'not the face!', 'LAG!!', 'report bug!', 'i can fly!', 'nooooo', 'mom look!'],
   defeated: ['gg', 'rip', 'no fair!', 'i lagged', 'respawn pls', 'nerf boss', 'ok that was sick'],
   squad: ['SQUAD UP!', 'surround it!', 'now, team!'],
+  grab: ['mine now!', 'shiny!!', 'ez loot', 'yoink', 'free gold lol', 'nobody saw that'],
+  escaped: ['ez loot', 'gg no re', 'see ya boss!', 'LOOT GET', 'too slow!'],
 };
 
 export const CHAMPION_LINES = ['Behold... a TRYHARD!', '1v1 me. No items.', 'It is my DESTINY!'];

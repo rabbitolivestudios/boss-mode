@@ -43,6 +43,8 @@ export class World {
   private seed = 1;
   private rig: CameraRig;
   zoom = 1;
+  /** Areas scenery must not cover (the vault, the gateways). */
+  keepClear: { x: number; z: number; r: number }[] = [];
 
   constructor(canvas: HTMLCanvasElement, readonly style: StyleId) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: window.devicePixelRatio < 2, powerPreference: 'high-performance' });
@@ -275,7 +277,9 @@ export class World {
       sd.batch.begin();
       for (const s of sd.spots) {
         const size = sd.size * s.s;
-        sd.batch.push({ x: wrapNear(s.x, px, sd.span), y: 0, z: wrapNear(s.z, pz, sd.span), w: size, h: size, cell: s.prop, face: s.x > 45 ? -1 : 1 });
+        const x = wrapNear(s.x, px, sd.span), z = wrapNear(s.z, pz, sd.span);
+        if (this.keepClear.some((k) => Math.hypot(x - k.x, z - k.z) < k.r)) continue;
+        sd.batch.push({ x, y: 0, z, w: size, h: size, cell: s.prop, face: s.x > 45 ? -1 : 1 });
       }
       sd.batch.end();
     }

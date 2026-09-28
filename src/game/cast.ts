@@ -12,9 +12,9 @@ const FIT = 0.86;
 
 export type CastId =
   | 'noob' | 'noob2' | 'archer' | 'archer2' | 'knight' | 'knight2' | 'sweat' | 'sweat2' | 'healer' | 'healer2'
-  | 'goblin' | 'tryhard' | 'clutch' | 'chosen';
+  | 'rogue' | 'rogue2' | 'goblin' | 'tryhard' | 'clutch' | 'chosen';
 
-export const CAST: CastId[] = ['noob', 'noob2', 'archer', 'archer2', 'knight', 'knight2', 'sweat', 'sweat2', 'healer', 'healer2', 'goblin', 'tryhard', 'clutch', 'chosen'];
+export const CAST: CastId[] = ['noob', 'noob2', 'archer', 'archer2', 'knight', 'knight2', 'sweat', 'sweat2', 'healer', 'healer2', 'rogue', 'rogue2', 'goblin', 'tryhard', 'clutch', 'chosen'];
 
 /** Which drawing a hero uses: two outfits per class for crowd variety, and a unique look per champion. */
 export function castFor(kind: HeroKind | 'goblin', variant: number, championIndex = 0): CastId {
@@ -319,6 +319,38 @@ const healerLook = (skin: string, trim: string): Look => ({
   },
 });
 
+const rogueLook = (cloak: string, mask: string): Look => ({
+  skin: '#ffcfa6', shirt: cloak, pants: '#2a2a3a', shoes: '#3b3f58',
+  back: (g) => {
+    const cape = () => { g.moveTo(50, 58); g.quadraticCurveTo(34, 80, 34, 100); g.lineTo(58, 96); g.lineTo(70, 60); g.closePath(); };
+    blob(g, cloak, cape);
+    shade(g, cape, 60, 100, 0.3);
+  },
+  torso: (g) => {
+    line(g, 3, '#6b4424', [[46, 64], [82, 90]]);
+    for (const [x, y] of [[54, 70], [64, 77], [74, 84]]) blob(g, '#8a5a2b', () => g.roundRect(x - 3, y - 3, 6, 7, 2), 1.5);
+  },
+  face: (g) => {
+    eyes(g, 68, 34, { size: 5.5, gap: 13, look: 1.8, lid: 2.5 });
+    brows(g, 68, 26, 13, 2.2);
+    // Bandit mask over the lower face.
+    blob(g, mask, () => { g.moveTo(52, 40); g.quadraticCurveTo(70, 38, 90, 40); g.quadraticCurveTo(88, 56, 68, 58); g.quadraticCurveTo(54, 56, 52, 40); }, 2.5);
+    line(g, 1.5, 'rgba(255,255,255,0.35)', [[60, 46], [80, 46]]);
+  },
+  hat: (g) => {
+    const hood = () => { g.moveTo(38, 46); g.quadraticCurveTo(34, 6, 64, 8); g.quadraticCurveTo(92, 10, 90, 30); g.lineTo(82, 24); g.quadraticCurveTo(62, 18, 52, 28); g.quadraticCurveTo(46, 40, 50, 58); g.lineTo(40, 60); g.closePath(); };
+    blob(g, cloak, hood);
+    shade(g, hood, 8, 60, 0.25);
+    shine(g, 50, 16, 8, 4);
+  },
+  hand: (g) => {
+    g.save(); g.rotate(-2.4);
+    blob(g, '#dfe6ee', () => { g.moveTo(-3, 6); g.lineTo(0, 26); g.lineTo(3, 6); g.closePath(); }, 2);
+    blob(g, '#6b4424', () => g.roundRect(-6, 2, 12, 4, 2), 1.5);
+    g.restore();
+  },
+});
+
 const goblinLook: Look = {
   skin: '#5ccf4f', shirt: '#5ccf4f', pants: '#8a5a2b', shoes: '#4a8a3a', short: true,
   torso: (g) => { blob(g, '#8a5a2b', () => { g.moveTo(45, 82); g.lineTo(83, 82); g.lineTo(78, 98); g.lineTo(64, 92); g.lineTo(50, 98); g.closePath(); }, 2); },
@@ -436,6 +468,8 @@ const LOOKS: Record<CastId, Look> = {
   sweat2: sweatLook('#8a4dff'),
   healer: healerLook('#ffcfa6', '#3ed17a'),
   healer2: healerLook('#c68a5e', '#ffc93a'),
+  rogue: rogueLook('#5a3a8a', '#2a1f3d'),
+  rogue2: rogueLook('#3f5a4a', '#1f2a24'),
   goblin: goblinLook,
   tryhard: tryhardLook,
   clutch: clutchLook,

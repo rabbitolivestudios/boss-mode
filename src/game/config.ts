@@ -22,15 +22,43 @@ export const RUN = {
   squadSize: 12,
   squadGrowth: 18,
   /** Contact damage per second is capped at contactCap + t / contactGrowth, so a swarm hurts but never deletes you. */
-  contactCap: 22,
-  contactGrowth: 14,
+  contactCap: 14,
+  contactGrowth: 22,
   rageMax: 100,
   roarRadius: 15,
   roarDamage: 60,
   frenzySeconds: 6,
 };
 
-export type HeroKind = 'noob' | 'archer' | 'knight' | 'sweat' | 'healer' | 'champion';
+/** The treasure vault at the centre of the arena, and the heroes who try to rob it. */
+export const TREASURE = {
+  start: 100,
+  /** Coins a thief carries out per trip. */
+  carry: 3,
+  /** Seconds a hero spends stuffing coins into the bag. */
+  grabTime: 0.7,
+  /** Thieves are weighed down by the bag, so the boss can catch them. */
+  thiefSpeed: 0.85,
+  /** Gates sit on a ring this far from the vault; heroes enter and escape through them. */
+  gateRadius: 26,
+  gates: 4,
+  /** How close to a gate a thief must get to escape. */
+  escapeDistance: 1.6,
+  /** Share of non-rogue heroes that go for the gold instead of the boss: base + t * ramp, capped. */
+  lootShareBase: 0.08,
+  lootShareRamp: 1 / 2400,
+  lootShareCap: 0.22,
+  /** Seconds before spilled coins fly home to the vault. */
+  returnDelay: 0.9,
+  vaultRadius: 2.2,
+  /** Heist crews: packs of rogues that enter at the gate farthest from the boss. Size = base + t / growth. */
+  heistFirst: 70,
+  heistEvery: 90,
+  heistSize: 5,
+  heistGrowth: 70,
+};
+
+export type HeroKind = 'noob' | 'archer' | 'knight' | 'sweat' | 'healer' | 'rogue' | 'champion';
 
 export interface HeroDef {
   label: string;
@@ -64,6 +92,7 @@ export const HEROES: Record<HeroKind, HeroDef> = {
     label: 'Healer', hp: 14, speed: 3.0, dps: 4, radius: 0.45, scale: 1, xp: 3, body: 0xffffff, head: 0xffc9a0, gear: 0x7dffb0,
     heal: { range: 5, cooldown: 2, amount: 6 },
   },
+  rogue: { label: 'Rogue', hp: 10, speed: 4.1, dps: 6, radius: 0.42, scale: 0.95, xp: 2, body: 0x5a3a8a, head: 0x2a1f3d, gear: 0xdfe6ee },
   champion: {
     label: 'Champion', hp: 450, speed: 3.4, dps: 16, radius: 1.1, scale: 2.4, xp: 0, body: 0xffc21a, head: 0xffe7b0, gear: 0xff5a1a,
     ranged: { range: 14, cooldown: 3.6, speed: 9, damage: 6 },
@@ -74,11 +103,12 @@ export const HEROES: Record<HeroKind, HeroDef> = {
 /** Weight tables by elapsed seconds; the last band whose `from` has passed applies. */
 export const WAVES: { from: number; mix: Partial<Record<HeroKind, number>> }[] = [
   { from: 0, mix: { noob: 1 } },
-  { from: 50, mix: { noob: 70, archer: 30 } },
-  { from: 110, mix: { noob: 50, archer: 25, sweat: 25 } },
-  { from: 170, mix: { noob: 40, archer: 20, sweat: 20, knight: 20 } },
-  { from: 250, mix: { noob: 30, archer: 20, sweat: 20, knight: 20, healer: 10 } },
-  { from: 360, mix: { noob: 20, archer: 25, sweat: 20, knight: 25, healer: 10 } },
+  { from: 30, mix: { noob: 85, rogue: 15 } },
+  { from: 50, mix: { noob: 60, archer: 25, rogue: 15 } },
+  { from: 110, mix: { noob: 45, archer: 20, sweat: 20, rogue: 15 } },
+  { from: 170, mix: { noob: 35, archer: 18, sweat: 17, knight: 18, rogue: 12 } },
+  { from: 250, mix: { noob: 27, archer: 18, sweat: 17, knight: 18, healer: 8, rogue: 12 } },
+  { from: 360, mix: { noob: 18, archer: 22, sweat: 18, knight: 22, healer: 8, rogue: 12 } },
 ];
 
 export const CHAMPIONS: { at: number; name: string; hpMul: number; final?: boolean }[] = [

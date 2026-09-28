@@ -2,7 +2,7 @@
 
 **For once, YOU are the final boss.**
 
-A browser survivors-like (think *Vampire Survivors*) with the roles flipped. You play the giant monster at the bottom of the dungeon, and every hero in the server has queued up to raid you. Move, and your attacks fire automatically. Launch heroes into each other for bowling combos, drop traps in their path, and ROAR when your rage meter is full.
+A browser survivors-like (think *Vampire Survivors*) with the roles flipped. You play the giant monster at the bottom of the dungeon, and every hero in the server has queued up to raid you. Guard the treasure vault in the middle of your lair: heroes march in through the gates, and thieves try to run off with your gold. Move, and your attacks fire automatically. Launch heroes into each other for bowling combos, drop traps in their path, and ROAR when your rage meter is full.
 
 Made for players aged about 10–14 who play Roblox and Fortnite: bright blocky art, gamer-tag heroes, a Fortnite-style killfeed and runs that last under 10 minutes.
 

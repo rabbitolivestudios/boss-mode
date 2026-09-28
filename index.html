@@ -20,12 +20,16 @@
     <div id="hud" class="hidden">
       <div id="xpbar"><div id="xpfill"></div><span id="lvl">LV 1</span></div>
       <div id="topline">
-        <div id="hpbox"><div id="hpfill"></div><span id="hptext">100</span></div>
+        <div id="bars">
+          <div id="hpbox"><div id="hpfill"></div><span id="hptext">100</span></div>
+          <div id="vaultbox"><div id="vaultfill"></div><span id="vaulttext">💰 100</span></div>
+        </div>
         <div id="timer">0:00</div>
         <div id="kills">💀 0</div>
       </div>
       <div id="champbar" class="hidden"><div id="champname">CHAMPION</div><div id="champtrack"><div id="champfill"></div></div></div>
       <div id="killfeed"></div>
+      <div id="markers"></div>
       <div id="combo"></div>
       <div id="abilities"></div>
       <div id="buttons">
@@ -39,7 +43,7 @@
 
     <div id="title" class="screen">
       <h1>BOSS<span>MODE</span></h1>
-      <p class="tag-line">For once, <b>YOU</b> are the final boss.<br />The heroes are coming for your treasure.</p>
+      <p class="tag-line">For once, <b>YOU</b> are the final boss.<br />The heroes are coming to steal your treasure.</p>
       <div id="boss-pick"></div>
       <p class="hint">Move: WASD / arrows / drag · ROAR: Space · Attacks are automatic</p>
       <p id="best"></p>

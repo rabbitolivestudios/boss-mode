@@ -103,7 +103,8 @@ You are the final boss in *Heroes Online*, a huge fantasy game, programmed to lo
 
 ### Build order
 
-1. **Treasure vault and thieves** in the current arena, to prove the stealing loop is fun before building anything else.
+1. **Treasure vault and thieves** in the current arena, to prove the stealing loop is fun before building anything else. **Built.** The vault starts at 100 gold in the middle of the arena; heroes enter through four gates; rogues (and a growing share of other heroes) go for the gold, grab 3 coins, and run for the nearest gate at 85% speed. Hitting a thief spills the coins, which fly home. A **heist crew** of rogues enters at the gate farthest from the boss every 90 seconds, so defending means leaving the vault. The run is lost if the boss's health or the vault reaches zero. Edge-of-screen markers point to the vault and to fleeing thieves.
+   *Balance status:* against the scripted bot, thieves rarely got away with more than 9 gold, and results varied mainly with the bot's upgrade picks. How much pressure thieves put on real players needs a playtest; the numbers are in `TREASURE` in `src/game/config.ts`.
 2. **Castle map, grid pathfinding (flow field) and a build phase** with four buildables: wall, spike pit, launch pad, saw.
 3. **Nights, the economy and the season structure.**
 4. **Nemesis heroes.**

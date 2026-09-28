@@ -33,6 +33,16 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #1b1033; col
 #hpbox { position: relative; width: min(38vw, 240px); height: 24px; background: rgba(0,0,0,.55); border: 3px solid var(--ink); border-radius: 12px; overflow: hidden; }
 #hpfill { height: 100%; width: 100%; background: linear-gradient(180deg, #ff6a6a, #e0183b); transition: width .1s; }
 #hptext { position: absolute; inset: 0; text-align: center; font-size: 15px; line-height: 19px; text-shadow: 0 2px 0 #000; }
+#bars { display: flex; flex-direction: column; gap: 4px; }
+#vaultbox { position: relative; width: min(38vw, 240px); height: 22px; background: rgba(0,0,0,.55); border: 3px solid var(--ink); border-radius: 10px; overflow: hidden; }
+#vaultfill { height: 100%; width: 100%; background: linear-gradient(180deg, #ffe066, #e0a800); transition: width .2s; }
+#vaulttext { position: absolute; inset: 0; text-align: center; font-size: 15px; line-height: 17px; text-shadow: 0 2px 0 #000; }
+#vaultbox.alarm { animation: alarm .5s infinite alternate; }
+@keyframes alarm { to { box-shadow: 0 0 14px 4px #ff3d5a; border-color: #ff3d5a; } }
+.marker { position: absolute; left: 0; top: 0; width: 40px; height: 40px; margin: -20px 0 0 -20px; border-radius: 50%; border: 3px solid var(--ink); display: grid; place-items: center; font-size: 20px; background: var(--gold); box-shadow: 0 3px 0 rgba(0,0,0,.35); }
+.marker[hidden] { display: none; }
+.marker.thief { background: #ff3d5a; animation: alarm .4s infinite alternate; }
+.marker i { position: absolute; left: 50%; top: 50%; width: 0; height: 0; border: 8px solid transparent; border-left: 12px solid var(--ink); margin: -8px 0 0 -6px; }
 #timer { flex: 1; text-align: center; font-size: 30px; text-shadow: 0 3px 0 #000; }
 #kills { font-size: 20px; text-shadow: 0 2px 0 #000; min-width: 70px; text-align: right; }
 

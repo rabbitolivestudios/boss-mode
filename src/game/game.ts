@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import {
-  BOSSES, CHAMPIONS, HEROES, MAX_LEVEL, MINION, PASSIVES, PHYSICS, RUN, TRAPS, WAVES, WEAPONS, XP, xpToNext,
+  BOSSES, CHAMPIONS, HEROES, MAX_LEVEL, MINION, PASSIVES, PHYSICS, RUN, TRAPS, TREASURE, WAVES, WEAPONS, XP, xpToNext,
   type BossId, type HeroDef, type HeroKind, type PassiveId, type WeaponId,
 } from './config';
 import { Fx } from './fx';
@@ -9,6 +9,7 @@ import { gamerTag } from './names';
 import { BOSS_PARTS, bossAtlas, type Face } from './bossart';
 import { CAST, castAtlas, castFor } from './cast';
 import { CHAMPION_LINES, Chatter, LINES, pick } from './chatter';
+import { lootAtlas, lootCell } from './lootart';
 import { SpriteBatch } from './paper';
 import { BossRig, PuppetRig, type Action } from './puppet';
 import { sfx } from './sfx';
@@ -24,7 +25,12 @@ export interface Hero {
   variant: number; champ: number; turn: number;
   /** Current puppet action (sword swing, bow shot, staff raise), its seconds left and length, and the hit reaction timer. */
   action: Action; actT: number; actDur: number; hitT: number;
+  /** 'loot' heroes ignore the boss and go for the vault; `carry` is the gold in their sack. */
+  goal: 'boss' | 'loot'; carry: number; grabT: number;
 }
+/** Gold knocked out of a thief's sack: it bounces, then flies home to the vault. */
+interface Spill { x: number; z: number; y: number; vx: number; vz: number; vy: number; t: number; sx: number; sz: number }
+export interface Escape { tag: string; gold: number; kind: HeroKind }
 /** A defeated paper hero folding flat before it disappears. */
 interface Corpse { x: number; z: number; y: number; cast: number; face: number; size: number; born: number; spin: number; seed: number }
 
@@ -43,7 +49,7 @@ export type Choice =
   | { kind: 'passive'; id: PassiveId; level: number }
   | { kind: 'snack' };
 
-export interface Summary { win: boolean; time: number; kills: number; level: number; boss: BossId; champions: number; bestCombo: number }
+export interface Summary { win: boolean; time: number; kills: number; level: number; boss: BossId; champions: number; bestCombo: number; treasure: number; stolen: number; reason: 'hp' | 'vault' | 'win'; escapes: Escape[] }
 
 export interface GameHooks {
   levelUp(choices: Choice[]): void;
@@ -93,6 +99,14 @@ export class Game {
   private traps: Trap[] = [];
   combo = 0;
   bestCombo = 0;
+  /** Gold in the vault, gold carried off for good, and who carried it. */
+  treasure: number = TREASURE.start;
+  stolen = 0;
+  escapes: Escape[] = [];
+  readonly gates: { x: number; z: number }[] = [];
+  private spills: Spill[] = [];
+  private warnedThief = false;
+  private nextHeist: number = TREASURE.heistFirst;
   /** Damage taken by source, for tuning. */
   taken = { contact: 0, arrows: 0, champion: 0 };
   private comboT = 0;
@@ -103,7 +117,7 @@ export class Game {
   // Meshes
   private hBody; private hHead; private hGear; private hLegL; private hLegR; private shadows;
   private mFire; private mArrow; private mGem; private mBat; private mLava; private mGob; private mGobHead; private mSpring; private mSpringTop; private mSaw; private mSnack; private mVacuum; private chestMesh: THREE.Group;
-  private paper: { heroes: SpriteBatch; rig: PuppetRig; boss: SpriteBatch; bossRig: BossRig; corpses: Corpse[] } | null = null;
+  private paper: { heroes: SpriteBatch; rig: PuppetRig; boss: SpriteBatch; bossRig: BossRig; loot: SpriteBatch; corpses: Corpse[] } | null = null;
   private bossActT = 0;
   private walkBlend = 0;
   private chatter: Chatter;
@@ -121,6 +135,12 @@ export class Game {
     const scene = world.scene;
     this.fx = new Fx(scene, world.camera, labelLayer);
     this.chatter = new Chatter(labelLayer, world.camera);
+    for (let i = 0; i < TREASURE.gates; i++) {
+      const a = (i / TREASURE.gates) * Math.PI * 2 + Math.PI / 4;
+      this.gates.push({ x: Math.cos(a) * TREASURE.gateRadius, z: Math.sin(a) * TREASURE.gateRadius });
+    }
+    // Keep scenery off the vault and out of the gateways.
+    world.keepClear = [{ x: 0, z: 0, r: 6 }, ...this.gates.map((g) => ({ x: g.x, z: g.z, r: 4.5 }))];
     const cap = RUN.maxHeroes + 4;
     // The diorama is lit like a painted map, so its figures use matte shading instead of cartoon bands.
     const white = () => (world.style === 'diorama' ? new THREE.MeshLambertMaterial({ color: 0xffffff }) : toon(0xffffff));
@@ -170,9 +190,10 @@ export class Game {
         rig: new PuppetRig(heroes, ha),
         boss: bossBatch,
         bossRig: new BossRig(bossBatch, ba),
+        loot: (() => { const la = lootAtlas(); return new SpriteBatch(la.tex, la.cols, la.rows, RUN.maxHeroes + 260, world.standeeTilt); })(),
         corpses: [],
       };
-      scene.add(this.paper.heroes.mesh, this.paper.boss.mesh);
+      scene.add(this.paper.heroes.mesh, this.paper.boss.mesh, this.paper.loot.mesh);
       for (const m of [this.hBody, this.hHead, this.hGear, this.hLegL, this.hLegR, this.mGob, this.mGobHead]) m.visible = false;
     }
     if (world.shadows) {
@@ -211,7 +232,7 @@ export class Game {
     this.recalc();
     this.hp = this.maxHp;
     this.running = true;
-    this.hooks.banner(`You are ${def.name} ${def.title}`, 'The heroes are coming for your treasure. Stop them!');
+    this.hooks.banner(`Guard your treasure, ${def.name}!`, 'Heroes are coming through the gates to steal your gold');
   }
 
   private reset(): void {
@@ -221,7 +242,8 @@ export class Game {
     this.taken = { contact: 0, arrows: 0, champion: 0 };
     this.chest = null; this.chestMesh.visible = false;
     this.weapons.clear(); this.passives.clear();
-    this.x = 0; this.z = 0; this.time = 0; this.kills = 0; this.championsBeaten = 0;
+    this.x = 4.5; this.z = 0.5; this.time = 0; this.kills = 0; this.championsBeaten = 0;
+    this.treasure = TREASURE.start; this.stolen = 0; this.escapes = []; this.spills = []; this.warnedThief = false; this.nextHeist = TREASURE.heistFirst;
     this.level = 1; this.xp = 0; this.xpNeed = xpToNext(1); this.rage = 0; this.frenzy = 0; this.hurt = 0;
     this.pendingLevels = 0; this.spawnAcc = 0; this.nextSquad = RUN.squadEvery; this.nextChampion = 0;
     this.paused = false; this.choosing = false; this.labels = 0;
@@ -337,9 +359,11 @@ export class Game {
     this.updateShots(dt);
     this.updateMinions(dt);
     this.updateGems(dt);
+    this.updateSpills(dt);
     this.heroes = this.heroes.filter((h) => h.alive);
 
-    if (this.hp <= 0) this.finish(false);
+    if (this.hp <= 0) this.finish(false, 'hp');
+    else if (this.treasure <= 0 && this.spills.length === 0 && !this.heroes.some((h) => h.carry > 0)) this.finish(false, 'vault');
     else if (this.pendingLevels > 0 && !this.choosing) {
       this.choosing = true;
       sfx.level();
@@ -347,10 +371,13 @@ export class Game {
     }
   }
 
-  private finish(win: boolean): void {
+  private finish(win: boolean, reason: Summary['reason']): void {
     this.running = false;
     if (win) sfx.win(); else sfx.lose();
-    this.hooks.end({ win, time: this.time, kills: this.kills, level: this.level, boss: this.bossId, champions: this.championsBeaten, bestCombo: this.bestCombo });
+    this.hooks.end({
+      win, reason, time: this.time, kills: this.kills, level: this.level, boss: this.bossId, champions: this.championsBeaten,
+      bestCombo: this.bestCombo, treasure: this.treasure, stolen: this.stolen, escapes: this.escapes,
+    });
   }
 
   // ---------- Spatial grid ----------
@@ -395,7 +422,7 @@ export class Game {
     const champ = CHAMPIONS[this.nextChampion];
     if (champ && t >= champ.at) {
       this.nextChampion++;
-      const h = this.makeHero('champion', RUN.spawnRadius * 0.8);
+      const h = this.makeHero('champion');
       h.hp = h.maxHp = HEROES.champion.hp * champ.hpMul;
       h.tag = champ.name;
       h.final = champ.final === true;
@@ -408,6 +435,19 @@ export class Game {
       this.champions.push(h);
       sfx.horn();
       this.hooks.banner(`⚔️ ${champ.name} has joined the raid!`, champ.final ? 'Beat the Chosen One to win!' : 'A champion hero is hunting you');
+    }
+
+    if (t >= this.nextHeist) {
+      this.nextHeist += TREASURE.heistEvery;
+      // The crew picks the gate farthest from the boss, so guarding the vault means leaving it.
+      const gate = [...this.gates].sort((a, b) => Math.hypot(b.x - this.x, b.z - this.z) - Math.hypot(a.x - this.x, a.z - this.z))[0];
+      const size = Math.round(TREASURE.heistSize + t / TREASURE.heistGrowth);
+      for (let i = 0; i < size && this.heroes.length < RUN.maxHeroes; i++) {
+        const h = this.addHero('rogue', gate.x + (Math.random() - 0.5) * 3, gate.z + (Math.random() - 0.5) * 3);
+        if (i === 0) this.chatter.say(h, 'HEIST TIME!', 2.4, true);
+      }
+      sfx.steal();
+      this.hooks.banner('HEIST CREW!', 'Rogues are sneaking in the far gate');
     }
 
     if (t >= this.nextSquad) {
@@ -428,7 +468,7 @@ export class Game {
     while (this.spawnAcc >= 1) {
       this.spawnAcc -= 1;
       if (this.heroes.length >= RUN.maxHeroes) { this.spawnAcc = 0; break; }
-      this.makeHero(this.pickKind(), RUN.spawnRadius * this.world.zoom);
+      this.makeHero(this.pickKind());
     }
   }
 
@@ -441,9 +481,17 @@ export class Game {
     return 'noob';
   }
 
-  private makeHero(kind: HeroKind, radius: number): Hero {
-    const a = Math.random() * Math.PI * 2;
-    return this.addHero(kind, this.x + Math.cos(a) * radius, this.z + Math.sin(a) * radius);
+  /** Heroes march in through the castle gates, spread across the gateway. */
+  private makeHero(kind: HeroKind): Hero {
+    const g = this.gates[Math.floor(Math.random() * this.gates.length)];
+    const len = Math.hypot(g.x, g.z) || 1;
+    const side = (Math.random() - 0.5) * 3;
+    const back = Math.random() * 2;
+    return this.addHero(kind, g.x - (g.z / len) * side + (g.x / len) * back, g.z + (g.x / len) * side + (g.z / len) * back);
+  }
+
+  private lootShare(): number {
+    return Math.min(TREASURE.lootShareCap, TREASURE.lootShareBase + this.time * TREASURE.lootShareRamp);
   }
 
   private addHero(kind: HeroKind, x: number, z: number): Hero {
@@ -456,6 +504,8 @@ export class Game {
       tag: null, label: null, final: false, aura: null,
       variant: Math.random() < 0.5 ? 0 : 1, champ: 0, turn: x < this.x ? 1 : -1,
       action: kind === 'archer' ? 'shoot' : kind === 'healer' ? 'raise' : 'swing', actT: 0, actDur: 0.4, hitT: 0,
+      goal: kind === 'rogue' ? 'loot' : kind !== 'champion' && Math.random() < this.lootShare() ? 'loot' : 'boss',
+      carry: 0, grabT: 0,
     };
     // A few regular heroes wear visible gamer tags so the crowd reads as "other players".
     if (kind !== 'champion' && this.labels < MAX_LABELS && Math.random() < 0.06) {
@@ -493,6 +543,7 @@ export class Game {
       h.actT = Math.max(0, h.actT - dt);
       h.hitT = Math.max(0, h.hitT - dt);
       if (h.air) { this.fly(h, dt); continue; }
+      if (h.goal === 'loot' && this.heist(h, dt, decay)) continue;
       let dx = this.x - h.x, dz = this.z - h.z;
       const d = Math.hypot(dx, dz) || 0.001;
       dx /= d; dz /= d;
@@ -571,6 +622,109 @@ export class Game {
     }
   }
 
+  // ---------- Treasure ----------
+
+  /**
+   * Moves a hero who is after the gold: to the vault, grab, then to the nearest gate.
+   * Returns false when the vault is empty and the hero should fight the boss instead.
+   */
+  private heist(h: Hero, dt: number, decay: number): boolean {
+    let tx = 0, tz = 0;
+    if (h.carry === 0) {
+      if (this.treasure <= 0) { h.goal = 'boss'; return false; }
+    } else {
+      let best = Infinity;
+      for (const g of this.gates) { const gd = Math.hypot(g.x - h.x, g.z - h.z); if (gd < best) { best = gd; tx = g.x; tz = g.z; } }
+    }
+    let dx = tx - h.x, dz = tz - h.z;
+    const d = Math.hypot(dx, dz) || 0.001;
+    dx /= d; dz /= d;
+    h.face = Math.atan2(dx, dz);
+    if (Math.abs(dx) > 0.2) h.turn = approach(h.turn, Math.sign(dx), dt * 6);
+
+    if (h.carry === 0 && d < TREASURE.vaultRadius + h.def.radius) {
+      // Stuffing the sack: stand still, arm raised, for grabTime.
+      h.grabT += dt;
+      if (h.actT <= 0) this.act(h, 'raise', 0.4);
+      if (h.grabT >= TREASURE.grabTime) {
+        h.grabT = 0;
+        h.carry = Math.min(TREASURE.carry, this.treasure);
+        this.treasure -= h.carry;
+        sfx.steal();
+        if (!this.warnedThief) { this.warnedThief = true; this.hooks.banner('THIEF!', 'Hit thieves to make them drop your gold'); }
+        if (Math.random() < 0.3) this.chatter.say(h, pick(LINES.grab), 2.4 * h.def.scale);
+      }
+    } else if (h.carry > 0 && d < TREASURE.escapeDistance) {
+      this.escape(h);
+      return true;
+    } else {
+      const speed = h.def.speed * (h.carry > 0 ? TREASURE.thiefSpeed : 1);
+      h.phase += dt * speed * 2.2;
+      h.x += (dx * speed + h.kx) * dt;
+      h.z += (dz * speed + h.kz) * dt;
+    }
+    h.kx *= decay; h.kz *= decay;
+    this.near(h.x, h.z, h.def.radius, (o, ox, oz, od) => {
+      if (o === h || od < 0.0001) return;
+      const push = (h.def.radius + o.def.radius - od) * 0.5;
+      if (push > 0) { h.x -= (ox / od) * push; h.z -= (oz / od) * push; }
+    });
+    // Thieves still bump into the boss, but they do not stop to fight.
+    const bx = h.x - this.x, bz = h.z - this.z;
+    const bd = Math.hypot(bx, bz) || 0.001;
+    const touch = this.radius + h.def.radius;
+    if (bd < touch) { h.x = this.x + (bx / bd) * touch; h.z = this.z + (bz / bd) * touch; }
+    return true;
+  }
+
+  private escape(h: Hero): void {
+    h.alive = false;
+    this.stolen += h.carry;
+    const tag = h.tag ?? gamerTag();
+    this.escapes.push({ tag, gold: h.carry, kind: h.kind });
+    this.hooks.killfeed(`💰 ${tag} escaped with ${h.carry} gold!`);
+    this.chatter.say({ x: h.x, z: h.z, alive: false }, pick(LINES.escaped), 2.4 * h.def.scale, true);
+    sfx.escape();
+    this.dropExtras(h);
+  }
+
+  /** Knocks the gold out of a thief's sack; it bounces for a moment, then flies home. */
+  private spill(h: Hero): void {
+    for (let i = 0; i < h.carry; i++) {
+      const a = Math.random() * Math.PI * 2;
+      this.spills.push({ x: h.x, z: h.z, y: 1.2, vx: Math.cos(a) * 3, vz: Math.sin(a) * 3, vy: 5 + Math.random() * 2, t: 0, sx: 0, sz: 0 });
+    }
+    this.fx.burst(h.x, 1.4, h.z, 0xffd23a, 10, 5, 0.18);
+    this.fx.number(h.x, 2.8, h.z, h.carry, true, '#ffd23a');
+    sfx.coin();
+    h.carry = 0;
+  }
+
+  private updateSpills(dt: number): void {
+    for (let i = this.spills.length - 1; i >= 0; i--) {
+      const c = this.spills[i];
+      c.t += dt;
+      if (c.t < TREASURE.returnDelay) {
+        c.vy -= 20 * dt;
+        c.x += c.vx * dt; c.z += c.vz * dt; c.y += c.vy * dt;
+        if (c.y < 0.3) { c.y = 0.3; c.vy = Math.abs(c.vy) * 0.45; c.vx *= 0.6; c.vz *= 0.6; }
+        c.sx = c.x; c.sz = c.z;
+        continue;
+      }
+      // Arc home: ease across to the vault over 0.6s with a hop.
+      const k = Math.min(1, (c.t - TREASURE.returnDelay) / 0.6);
+      const e = k * k * (3 - 2 * k);
+      c.x = c.sx * (1 - e);
+      c.z = c.sz * (1 - e);
+      c.y = 0.6 + Math.sin(k * Math.PI) * 3;
+      if (k >= 1) {
+        this.treasure += 1;
+        this.spills.splice(i, 1);
+        sfx.coin();
+      }
+    }
+  }
+
   private act(h: Hero, action: Action, dur: number): void {
     h.action = action;
     h.actT = h.actDur = dur;
@@ -596,6 +750,7 @@ export class Game {
     h.hp -= dmg;
     h.flash = 0.1;
     h.hitT = 0.22;
+    if (h.carry > 0) this.spill(h);
     // Champions shrug off most knockback so they stay threatening.
     const kb = h.kind === 'champion' ? 0.15 : h.kind === 'knight' ? 0.5 : 1;
     h.kx += kx * kb; h.kz += kz * kb;
@@ -628,7 +783,7 @@ export class Game {
       this.champions = this.champions.filter((c) => c !== h);
       this.world.addShake(0.8);
       this.fx.burst(h.x, 1.5, h.z, 0xffd23a, 60, 12, 0.3);
-      if (h.final) { this.finish(true); return; }
+      if (h.final) { this.finish(true, 'win'); return; }
       this.chest = { x: h.x, z: h.z };
       this.chestMesh.visible = true;
       this.hooks.banner(`${h.tag} was defeated!`, 'Grab the treasure chest!');
@@ -1188,6 +1343,21 @@ export class Game {
       hurt: this.ouch / 0.35, expr,
     });
     p.boss.end();
+
+    // Treasure: gates, the vault at its fill level, sacks over thieves, and coins flying home.
+    p.loot.begin();
+    // Gates lean well back so the ones near the camera never wall off the view.
+    for (const g of this.gates) p.loot.push({ x: g.x, y: 0, z: g.z, w: 4.2, h: 4.2, cell: lootCell('gate'), face: 1, lean: g.z > 0 ? 0.75 : 0.2 });
+    const full = this.treasure / TREASURE.start;
+    const level = full > 0.66 ? 'vault3' : full > 0.33 ? 'vault2' : full > 0 ? 'vault1' : 'vault0';
+    p.loot.push({ x: 0, y: 0, z: 0, w: 4.6, h: 4.6, cell: lootCell(level), face: 1, roll: Math.sin(now * 2) * 0.02 });
+    for (const h of this.heroes) {
+      if (!h.alive || h.carry <= 0) continue;
+      const size = this.standeeSize(h);
+      p.loot.push({ x: h.x, z: h.z, y: (h.air ? h.y : 0) + size * 0.78 + Math.abs(Math.sin(h.phase)) * 0.12, w: 1.25, h: 1.25, cell: lootCell('bag'), face: h.turn, roll: h.air ? h.spin : Math.sin(h.phase) * 0.15 });
+    }
+    for (const c of this.spills) p.loot.push({ x: c.x, y: c.y - 0.3, z: c.z, w: 0.75, h: 0.75, cell: lootCell('coin'), face: Math.cos(now * 9 + c.sx), roll: 0 });
+    p.loot.end();
   }
 
   private castIndex(h: Hero): number {
@@ -1197,6 +1367,32 @@ export class Game {
   /** Puppet pieces are drawn a little smaller than their cells (see cast.ts FIT), so the standee is scaled up to match. */
   private standeeSize(h: Hero): number {
     return 2.05 * h.def.scale;
+  }
+
+  /**
+   * Edge-of-screen arrows for things the player must not lose track of: the vault when it is off
+   * screen, and the nearest thieves carrying gold. Positions are in CSS pixels, clamped to the edge.
+   */
+  markers(): { kind: 'vault' | 'thief'; x: number; y: number; angle: number }[] {
+    const w = window.innerWidth, h = window.innerHeight, pad = 34;
+    const out: { kind: 'vault' | 'thief'; x: number; y: number; angle: number }[] = [];
+    const place = (kind: 'vault' | 'thief', wx: number, wz: number) => {
+      this.v3.set(wx, 1, wz).project(this.world.camera);
+      let sx = (this.v3.x * 0.5 + 0.5) * w, sy = (-this.v3.y * 0.5 + 0.5) * h;
+      if (this.v3.z > 1) { sx = w - sx; sy = h - sy; }
+      if (sx > pad && sx < w - pad && sy > pad + 60 && sy < h - pad) return;
+      const cx = w / 2, cy = h / 2;
+      const angle = Math.atan2(sy - cy, sx - cx);
+      const t = Math.min((w / 2 - pad) / Math.abs(Math.cos(angle) || 1e-6), (h / 2 - pad - 30) / Math.abs(Math.sin(angle) || 1e-6));
+      out.push({ kind, x: cx + Math.cos(angle) * t, y: cy + 15 + Math.sin(angle) * t, angle });
+    };
+    place('vault', 0, 0);
+    this.heroes
+      .filter((hh) => hh.alive && hh.carry > 0)
+      .sort((a, b) => Math.hypot(a.x - this.x, a.z - this.z) - Math.hypot(b.x - this.x, b.z - this.z))
+      .slice(0, 4)
+      .forEach((t) => place('thief', t.x, t.z));
+    return out;
   }
 
   private placeLabels(): void {

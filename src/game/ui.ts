@@ -1,4 +1,4 @@
-import { BOSSES, PASSIVES, WEAPONS, type BossId } from './config';
+import { BOSSES, PASSIVES, TREASURE, WEAPONS, type BossId } from './config';
 import { bossPortrait } from './bossart';
 import type { Choice, Game, Summary } from './game';
 
@@ -104,6 +104,11 @@ export class Ui {
     $('hpfill').style.width = `${Math.max(0, (g.hp / g.maxHp) * 100)}%`;
     $('hptext').textContent = `${Math.max(0, Math.ceil(g.hp))} / ${Math.round(g.maxHp)}`;
     $('timer').textContent = fmt(g.time);
+    $('vaultfill').style.width = `${Math.min(100, (g.treasure / TREASURE.start) * 100)}%`;
+    $('vaulttext').textContent = `💰 ${g.treasure}`;
+    const thieves = g.heroes.some((h) => h.alive && h.carry > 0);
+    $('vaultbox').classList.toggle('alarm', thieves);
+    this.drawMarkers(g);
     $('kills').textContent = `💀 ${g.kills}`;
     $('vignette').style.opacity = g.hurt > 0 ? '1' : g.hp / g.maxHp < 0.3 ? '0.45' : '0';
     $('frenzy').style.opacity = g.frenzy > 0 ? '1' : '0';
@@ -127,6 +132,26 @@ export class Ui {
       for (const [id, w] of g.weapons) box.insertAdjacentHTML('beforeend', `<div class="ab" title="${WEAPONS[id].name}">${WEAPONS[id].icon}<i>${w.level}</i></div>`);
       for (const [id, l] of g.passives) box.insertAdjacentHTML('beforeend', `<div class="ab passive" title="${PASSIVES[id].name}">${PASSIVES[id].icon}<i>${l}</i></div>`);
     }
+  }
+
+  private markerEls: HTMLDivElement[] = [];
+
+  private drawMarkers(g: Game): void {
+    const box = $('markers');
+    const list = g.markers();
+    while (this.markerEls.length < list.length) {
+      const el = document.createElement('div');
+      box.appendChild(el);
+      this.markerEls.push(el);
+    }
+    this.markerEls.forEach((el, i) => {
+      const m = list[i];
+      el.hidden = !m;
+      if (!m) return;
+      el.className = `marker ${m.kind}`;
+      el.innerHTML = `${m.kind === 'vault' ? '💰' : '💸'}<i style="transform: rotate(${m.angle}rad) translateX(26px)"></i>`;
+      el.style.transform = `translate(${m.x}px, ${m.y}px)`;
+    });
   }
 
   banner(title: string, sub: string): void {
@@ -167,17 +192,20 @@ export class Ui {
   end(s: Summary, onAgain: () => void): void {
     $('levelup').classList.add('hidden');
     const boss = BOSSES[s.boss];
-    $('end-title').textContent = s.win ? 'VICTORY!' : 'DEFEATED!';
+    $('end-title').textContent = s.win ? 'VICTORY!' : s.reason === 'vault' ? 'ROBBED!' : 'DEFEATED!';
+    const worst = [...s.escapes].sort((a, b) => b.gold - a.gold)[0];
     $('end-sub').textContent = s.win
-      ? `${boss.name} crushed the Chosen One. The treasure is safe!`
-      : `The heroes got ${boss.name}... this time.`;
+      ? `${boss.name} crushed the Chosen One and kept ${s.treasure} gold!`
+      : s.reason === 'vault'
+        ? `The heroes stole ALL of ${boss.name}'s treasure!${worst ? ` ${worst.tag} got away with the most.` : ''}`
+        : `The heroes got ${boss.name}... this time.`;
     const best = loadBest();
     const rec = (v: number, b: number) => (v > b ? ' 🏆' : '');
     $('end-stats').innerHTML = `
       <div><b>${fmt(s.time)}${rec(s.time, best.time)}</b>survived</div>
       <div><b>${s.kills}${rec(s.kills, best.kills)}</b>heroes beaten</div>
       <div><b>${s.bestCombo}x${rec(s.bestCombo, best.combo)}</b>best combo</div>
-      <div><b>${s.level}</b>boss level</div>`;
+      <div><b>💰 ${s.treasure}</b>gold kept</div>`;
     saveBest({
       time: Math.max(best.time, s.time), kills: Math.max(best.kills, s.kills),
       combo: Math.max(best.combo, s.bestCombo), wins: best.wins + (s.win ? 1 : 0),

@@ -67,6 +67,9 @@ export const sfx = {
   level: () => [523, 659, 784, 1046].forEach((f, i) => setTimeout(() => tone(f, 0.15, 'triangle', 0.18), i * 70)),
   roar: () => { noise(0.8, 0.5); tone(70, 0.9, 'sawtooth', 0.4, 0.5); tone(110, 0.9, 'square', 0.15, 0.6); },
   horn: () => [392, 392, 523].forEach((f, i) => setTimeout(() => tone(f, 0.22, 'square', 0.12), i * 180)),
+  coin: () => gate('coin', 50) && (tone(1320, 0.06, 'square', 0.07), setTimeout(() => tone(1760, 0.12, 'square', 0.07), 50)),
+  steal: () => gate('steal', 300) && [660, 520, 400].forEach((f, i) => setTimeout(() => tone(f, 0.08, 'triangle', 0.1), i * 60)),
+  escape: () => gate('escape', 400) && [300, 240, 180].forEach((f, i) => setTimeout(() => tone(f, 0.18, 'sawtooth', 0.1), i * 110)),
   win: () => [523, 659, 784, 1046, 1318].forEach((f, i) => setTimeout(() => tone(f, 0.3, 'triangle', 0.2), i * 120)),
   lose: () => [392, 330, 262, 196].forEach((f, i) => setTimeout(() => tone(f, 0.35, 'triangle', 0.2), i * 200)),
 };
