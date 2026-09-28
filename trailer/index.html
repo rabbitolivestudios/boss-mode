@@ -1,0 +1,73 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Boss Mode cinematic</title>
+<style>
+@font-face { font-family: 'Lilita One'; src: url(lilita.woff2) format('woff2'); }
+* { box-sizing: border-box; }
+html, body { margin: 0; background: #000; }
+#stage { position: relative; width: 1280px; height: 720px; overflow: hidden; background: #1b1033; font-family: 'Lilita One', 'Arial Black', sans-serif; }
+#sky { position: absolute; inset: 0; background: radial-gradient(ellipse 90% 80% at 60% 20%, #7a44d9 0%, #50289f 38%, #1b1033 85%); }
+#world { position: absolute; left: 0; top: 0; width: 3000px; height: 900px; transform-origin: 0 0; }
+.a { position: absolute; left: 0; top: 0; transform-origin: 50% 100%; will-change: transform; }
+.a img, img.a { display: block; }
+#stars { position: absolute; left: -1200px; top: 0; width: 4600px; height: 500px; background-image:
+  radial-gradient(3px 3px at 5% 12%, #fff 60%, transparent), radial-gradient(2px 2px at 12% 30%, #fff 60%, transparent), radial-gradient(3px 3px at 20% 8%, #ffe27a 60%, transparent),
+  radial-gradient(2px 2px at 28% 22%, #fff 60%, transparent), radial-gradient(3px 3px at 36% 6%, #fff 60%, transparent), radial-gradient(2px 2px at 44% 26%, #fff 60%, transparent),
+  radial-gradient(3px 3px at 52% 14%, #fff 60%, transparent), radial-gradient(2px 2px at 60% 32%, #ffe27a 60%, transparent), radial-gradient(3px 3px at 68% 10%, #fff 60%, transparent),
+  radial-gradient(2px 2px at 76% 24%, #fff 60%, transparent), radial-gradient(3px 3px at 84% 6%, #fff 60%, transparent), radial-gradient(2px 2px at 92% 20%, #fff 60%, transparent); }
+#moon { width: 150px; height: 150px; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #fffbe0, #ffe27a 60%, #f5c542); border: 6px solid #2a1f3d; box-shadow: 0 0 0 7px #fff, 0 0 90px 30px rgba(255, 226, 122, .35); transform-origin: 50% 50%; }
+.hill { position: absolute; left: -1200px; width: 4600px; }
+.hill path { stroke: #2a1f3d; stroke-width: 6; vector-effect: non-scaling-stroke; }
+#hillBack { top: 360px; height: 330px; }
+#hillBack path { fill: #4f9a3a; }
+#ground { top: 520px; height: 380px; filter: drop-shadow(0 -7px 0 #fff); }
+#ground path { fill: #7cc653; }
+.label { position: absolute; left: 50%; bottom: 100%; transform: translate(-50%, -6px); white-space: nowrap; font: 700 13px ui-rounded, system-ui, sans-serif; color: #fff; background: rgba(27, 16, 51, .8); border-radius: 8px; padding: 2px 8px; }
+.bubble { font-size: 64px; color: #fff; text-shadow: 0 5px 0 #2a1f3d, 0 0 0 #000; -webkit-text-stroke: 3px #2a1f3d; transform-origin: 50% 100%; }
+.zzz { font-size: 54px; color: #cbe8ff; -webkit-text-stroke: 3px #2a1f3d; }
+.bang { font-size: 70px; color: #ffd23a; -webkit-text-stroke: 4px #2a1f3d; }
+.sweat { width: 18px; height: 26px; background: #7fd6ff; border: 3px solid #2a1f3d; border-radius: 50% 50% 50% 50% / 60% 60% 40% 40%; transform-origin: 50% 50%; }
+.ring { border: 10px solid #fff; border-radius: 50%; transform-origin: 50% 50%; }
+.bit { width: 16px; height: 10px; border: 2px solid #2a1f3d; transform-origin: 50% 50%; }
+#roarText { font-size: 150px; color: #ff4fa3; -webkit-text-stroke: 7px #2a1f3d; text-shadow: 0 12px 0 #2a1f3d; transform-origin: 50% 50%; white-space: nowrap; }
+.army { filter: brightness(.18) saturate(0); }
+#glow { width: 520px; height: 520px; border-radius: 50%; background: radial-gradient(circle, rgba(255, 240, 150, .9), rgba(255, 210, 58, .35) 40%, transparent 70%); transform-origin: 50% 50%; }
+#rays { width: 900px; height: 900px; background: repeating-conic-gradient(rgba(255, 230, 120, .35) 0 8deg, transparent 8deg 22deg); border-radius: 50%; -webkit-mask: radial-gradient(circle, #000 20%, transparent 70%); mask: radial-gradient(circle, #000 20%, transparent 70%); transform-origin: 50% 50%; }
+#logo { width: 460px; transform-origin: 50% 50%; }
+#tagline { font-size: 40px; color: #fff; -webkit-text-stroke: 2px #2a1f3d; text-shadow: 0 5px 0 #2a1f3d; transform-origin: 50% 50%; white-space: nowrap; }
+#flash { position: absolute; inset: 0; background: #fff; opacity: 0; }
+#overlay { position: absolute; inset: 0; pointer-events: none; }
+#vig { position: absolute; inset: 0; pointer-events: none; box-shadow: inset 0 0 180px 40px rgba(10, 4, 30, .55); }
+#letterbox::before, #letterbox::after { content: ''; position: absolute; left: 0; right: 0; height: 0; background: #000; }
+</style></head>
+<body><div id="stage">
+  <div id="sky"></div>
+  <div id="world">
+    <div id="stars"></div>
+    <div id="moon" class="a"></div>
+    <svg id="hillBack" class="hill" viewBox="0 0 4600 330" preserveAspectRatio="none"><path d="M0 90 C400 30 800 120 1200 70 C1450 20 1720 60 1960 30 C2200 0 2380 120 2650 90 C2950 60 3200 150 3500 100 C3800 60 4200 120 4600 90 V330 H0 Z"/></svg>
+    <div id="armyLayer"></div>
+    <div id="glowWrap"><div id="rays" class="a"></div><div id="glow" class="a"></div></div>
+    <img id="chosen" class="a" src="art/hero-chosen.webp" width="210">
+    <svg id="ground" class="hill" viewBox="0 0 4600 380" preserveAspectRatio="none"><path d="M0 50 C400 20 800 70 1200 45 C1500 20 1800 70 2100 40 C2400 10 2700 50 3000 30 C3300 10 3600 60 3900 30 C4200 10 4400 30 4600 25 V380 H0 Z"/></svg>
+    <img id="towerL" class="a" src="art/castle-tower.webp" width="170">
+    <img id="wall1" class="a" src="art/castle-wall.webp" width="120"><img id="wall2" class="a" src="art/castle-wall.webp" width="120">
+    <img id="towerR" class="a" src="art/castle-tower.webp" width="170">
+    <img id="wall3" class="a" src="art/castle-wall.webp" width="120">
+    <img id="dragon" class="a" src="art/dragon-blink.png" width="440">
+    <img id="vault" class="a" src="art/loot-vault3.webp" width="250">
+    <img id="coin" class="a" src="art/loot-coin.webp" width="54">
+    <div id="heroes"></div>
+    <img id="gloop" class="a" src="art/boss-slime.webp" width="300">
+    <img id="rattles" class="a" src="art/boss-bonelord.webp" width="270">
+    <div id="fx"></div>
+  </div>
+  <div id="vig"></div>
+  <div id="overlay">
+    <div id="roarText" class="a">ROOOAAAR!</div>
+    <img id="logo" class="a" src="art/logo.webp">
+    <div id="tagline" class="a">Defend the treasure!</div>
+  </div>
+  <div id="flash"></div>
+</div>
+<script src="cine.js"></script>
+</body></html>
