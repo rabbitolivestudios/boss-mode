@@ -108,6 +108,10 @@ export interface Summary {
     visitors: number;
     newVisitors: number;
     returningVisitors: number;
+    /** Every browser seen, landing-page-only visitors included. */
+    browsersSeen: number;
+    /** Players by device and browser ("mobile|Safari"), to spot one person's several browsers. */
+    playerDevices: Count[];
     medianSessionMinutes: number | null;
     /** Sessions that saw the landing page, and how many of those went on to open the game. */
     landing: { sessions: number; played: number };

@@ -12,8 +12,8 @@ const share = (part: number, whole: number): number | null => (whole ? (part / w
 function kpis(s: Summary): string {
   const d = last14(s.audience.daily), p = s.previous?.available ? s.previous : null;
   return `<div class="kpis">${[
-    kpi({ ic: 'users', label: 'Players', value: fmt(s.audience.visitors), spark: d.map((x) => x.visitors), slot: 1, now: s.audience.visitors, before: p ? p.visitors : null, note: 'Browsers seen, not people: one kid on two devices counts twice.' }),
-    kpi({ ic: 'returning', label: 'Came back', value: fmt(s.audience.returningVisitors), spark: d.map((x) => x.returning), slot: 3, now: s.audience.returningVisitors, before: p ? p.returning : null, note: 'Played again on a later day.' }),
+    kpi({ ic: 'users', label: 'Players', value: fmt(s.audience.visitors), spark: d.map((x) => x.visitors), slot: 1, now: s.audience.visitors, before: p ? p.visitors : null, note: `Browsers that opened the game, not people: a phone, a tablet and a home-screen app count as three.${s.audience.browsersSeen > s.audience.visitors ? ` ${fmt(s.audience.browsersSeen - s.audience.visitors)} more only saw the landing page.` : ''}` }),
+    kpi({ ic: 'returning', label: 'Came back', value: fmt(s.audience.returningVisitors), spark: d.map((x) => x.returning), slot: 3, now: s.audience.returningVisitors, before: p ? p.returning : null, note: 'Played again on a later day than their first visit.' }),
     kpi({ ic: 'swords', label: 'Seasons started', value: fmt(s.seasons.started), spark: d.map((x) => x.seasons), slot: 2, now: s.seasons.started, before: p ? p.seasons : null, note: `${fmt(s.seasons.finished)} finished · ${pct(s.seasons.continuedShare)} continued from a save` }),
     kpi({ ic: 'crown', label: 'Seasons won', value: fmt(s.seasons.wins), spark: d.map((x) => x.wins), slot: 1, now: s.seasons.wins, before: p ? p.wins : null, note: `${pct(share(s.seasons.wins, s.seasons.finished))} of finished seasons` }),
   ].join('')}</div>`;
@@ -107,7 +107,11 @@ export function players(s: Summary): string {
     title: 'Landing page', ic: 'door', hint: 'Visitors who saw the front page, and how many pressed play.',
     body: bars([{ label: 'Saw the landing page', value: a.landing.sessions, text: fmt(a.landing.sessions), tip: 'Sessions that opened bossmode.mac-tbo.com' },
       { label: 'Went on to play', value: a.landing.played, text: `${fmt(a.landing.played)} · ${pct(share(a.landing.played, a.landing.sessions))}`, tip: 'Of those, sessions that opened the game' }], { slot: 1 }),
-  })}</div><div class="grid">${heatCard(s)}${activityCard(s)}</div><div class="grid three">${deviceCard(s)}${countries(s)}` +
+  })}</div><div class="grid">${heatCard(s)}${card({
+    title: 'Players by device and browser', ic: 'phone', hint: 'Each line is one browser that opened the game. Your own phone, computer and home-screen app each appear here, so this is the place to recognise yourself.',
+    body: bars(a.playerDevices.map((c) => { const [dev, br] = c.key.split('|'); return { label: `${DEVICE[dev] ?? dev} · ${br}`, value: c.n, text: `${fmt(c.n)} player${c.n === 1 ? '' : 's'}`, tip: `${c.n} browsers` }; }), { slot: 1 }),
+    table: table(['Device · browser', 'Players'], a.playerDevices.map((c) => [c.key.replace('|', ' · '), c.n])),
+  })}</div><div class="grid">${activityCard(s)}${deviceCard(s)}</div><div class="grid three">${countries(s)}` +
     `${breakdown('Browsers', 'globe', a.browsers, a.sessions, (k) => k)}${breakdown('Languages', 'languages', a.locales, a.sessions, (k) => LOCALE[k] ?? k)}</div>`;
 }
 

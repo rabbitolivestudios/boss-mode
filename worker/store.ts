@@ -55,9 +55,12 @@ export class Store extends DurableObject {
       // Visitor ids are namespaced by traffic kind so test runs never make a real visitor look returning.
       const key = `${session.test ? 'test' : 'real'}:${e.visitorId}`;
       sql.exec('DELETE FROM visitors WHERE id=? AND first_at<?', key, now - RETENTION_MS);
-      const inserted = sql.exec('INSERT OR IGNORE INTO visitors(id,first_at) VALUES (?,?)', key, now).rowsWritten > 0;
+      // An explicit lookup, since a cursor's rowsWritten is not guaranteed final until it is consumed.
+      const known = sql.exec<{ first_at: number }>('SELECT first_at FROM visitors WHERE id=?', key).toArray()[0];
+      if (!known) sql.exec('INSERT INTO visitors(id,first_at) VALUES (?,?)', key, now);
       session.visitorKey = key;
-      session.newVisitor = inserted;
+      session.newVisitor = !known;
+      session.visitorFirstAt = known?.first_at ?? now;
     }
     sql.exec('INSERT INTO sessions(id,first_at,data) VALUES (?,?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data', session.id, session.firstAt, JSON.stringify(session));
     sql.exec("INSERT OR IGNORE INTO meta(key,value) VALUES ('tracking_since',?)", now);

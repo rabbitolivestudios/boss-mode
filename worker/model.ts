@@ -15,6 +15,8 @@ export interface SessionRecord {
   device: string; browser: string; locale: string; country: string;
   /** Whether this session's visitor was first seen in it; null when the browser sent no visitor id. */
   newVisitor: boolean | null; visitorKey: string | null;
+  /** When this browser was first seen by the store; older records only have newVisitor. */
+  visitorFirstAt?: number;
   visit: boolean; landing?: boolean; seasons: string[];
   settings: { music: boolean; sfx: boolean } | null;
   fps: [number, number][];
@@ -138,6 +140,33 @@ export function addToSeason(prev: SeasonRecord | undefined, e: GameEvent, now: n
 
 // ---------- Summary ----------
 
+interface Player { first: number; laterDay: boolean; device: string; browser: string }
+
+/**
+ * Browsers that opened the game (not just the landing page), each with when it was first seen and
+ * whether it played again on a later day than that, the definition Footy Draft uses. Anonymous ids
+ * mean one child on a phone, a tablet and a home-screen app counts three times.
+ */
+function players(sessions: SessionRecord[]): Map<string, Player> {
+  const out = new Map<string, Player>();
+  for (const s of sessions) {
+    if (!s.visitorKey || !s.visit) continue;
+    // Older records only say whether the browser was new at that session; a later session of the same
+    // browser says nothing about when it was first seen, so it must not pull the date back.
+    const first = s.visitorFirstAt ?? (s.newVisitor ? s.firstAt : Infinity);
+    const p = out.get(s.visitorKey) ?? { first, laterDay: false, device: s.device, browser: s.browser };
+    p.first = Math.min(p.first, first);
+    out.set(s.visitorKey, p);
+  }
+  // No first-seen date at all means the browser was first seen before this window.
+  for (const p of out.values()) if (!Number.isFinite(p.first)) p.first = 0;
+  for (const s of sessions) {
+    const p = s.visitorKey ? out.get(s.visitorKey) : undefined;
+    if (p && s.visit && day(s.firstAt) > day(p.first)) p.laterDay = true;
+  }
+  return out;
+}
+
 export function median(values: number[]): number | null {
   if (!values.length) return null;
   const v = [...values].sort((a, b) => a - b), m = v.length >> 1;
@@ -174,9 +203,10 @@ export function summarize(
   const sessions = allSessions.filter((s) => s.firstAt >= from && keep(s.test));
   const seasons = allSeasons.filter((s) => s.startedAt >= from && keep(s.test));
 
-  const visitors = new Map<string, boolean>();
-  for (const s of sessions) if (s.visitorKey) visitors.set(s.visitorKey, (visitors.get(s.visitorKey) ?? false) || s.newVisitor === true);
-  const newVisitors = [...visitors.values()].filter(Boolean).length;
+  const people = players(sessions);
+  const everyone = new Set(sessions.flatMap((s) => (s.visitorKey ? [s.visitorKey] : [])));
+  const newVisitors = [...people.values()].filter((p) => p.first >= from).length;
+  const returningVisitors = [...people.values()].filter((p) => p.laterDay).length;
 
   const dailyMap = new Map<string, { sessions: number; seasons: number; visitors: number; newVisitors: number; returning: number; wins: number }>();
   for (let t = from; t <= now; t += 86400000) dailyMap.set(day(t), { sessions: 0, seasons: 0, visitors: 0, newVisitors: 0, returning: 0, wins: 0 });
@@ -185,13 +215,15 @@ export function summarize(
     const key = day(s.firstAt), d = dailyMap.get(key);
     if (!d) continue;
     d.sessions++;
-    if (!s.visitorKey) continue;
+    const p = s.visitorKey ? people.get(s.visitorKey) : undefined;
+    if (!p || !s.visit) continue;
     const seen = seenPerDay.get(key) ?? new Set<string>();
     seenPerDay.set(key, seen);
-    if (seen.has(s.visitorKey)) continue;
-    seen.add(s.visitorKey);
+    if (seen.has(s.visitorKey as string)) continue;
+    seen.add(s.visitorKey as string);
     d.visitors++;
-    if (s.newVisitor) d.newVisitors++; else d.returning++;
+    // New on the day the browser was first seen; returning on any later day it plays.
+    if (key === day(p.first)) d.newVisitors++; else if (key > day(p.first)) d.returning++;
   }
   for (const s of seasons) {
     const d = dailyMap.get(day(s.startedAt)); if (d) d.seasons++;
@@ -215,12 +247,11 @@ export function summarize(
   const prevFrom = from - days * 86400000;
   const before = allSessions.filter((s) => s.firstAt >= prevFrom && s.firstAt < from && keep(s.test));
   const beforeSeasons = allSeasons.filter((s) => s.startedAt >= prevFrom && s.startedAt < from && keep(s.test));
-  const beforeVisitors = new Map<string, boolean>();
-  for (const s of before) if (s.visitorKey) beforeVisitors.set(s.visitorKey, (beforeVisitors.get(s.visitorKey) ?? false) || s.newVisitor === true);
+  const beforePeople = players(before);
   const previous = {
     // Comparisons only mean something once tracking covers the whole earlier window.
     available: trackingSince !== null && trackingSince <= prevFrom,
-    visitors: beforeVisitors.size, returning: [...beforeVisitors.values()].filter((n) => !n).length,
+    visitors: beforePeople.size, returning: [...beforePeople.values()].filter((p) => p.laterDay).length,
     seasons: beforeSeasons.length, wins: beforeSeasons.filter((s) => s.end?.outcome === 'win').length,
   };
 
@@ -275,7 +306,8 @@ export function summarize(
     trackingSince: trackingSince ? new Date(trackingSince).toISOString() : null,
     traffic,
     audience: {
-      sessions: sessions.length, visitors: visitors.size, newVisitors, returningVisitors: visitors.size - newVisitors,
+      sessions: sessions.length, visitors: people.size, newVisitors, returningVisitors, browsersSeen: everyone.size,
+      playerDevices: counts([...people.values()].map((p) => `${p.device}|${p.browser}`)),
       medianSessionMinutes: median(lengths),
       landing: { sessions: sessions.filter((s) => s.landing).length, played: sessions.filter((s) => s.landing && s.visit).length },
       daily: [...dailyMap].map(([date, v]) => ({ date, ...v })),

@@ -229,8 +229,13 @@ export function bossAtlas(): BossAtlas {
 
 /** The whole boss in its idle pose, for menus. */
 export function bossPortrait(id: BossId): HTMLCanvasElement {
+  return bossPose(id, 'idle');
+}
+
+/** The whole boss with any face, for trailer and marketing stills (asleep = blink, roaring = hurt). */
+export function bossPose(id: BossId, face: Face): HTMLCanvasElement {
   const [c, g] = canvas(CELL, CELL);
-  for (const part of BOSS_PARTS[id]) g.drawImage(piece(part, 'idle'), 0, 0);
+  for (const part of BOSS_PARTS[id]) g.drawImage(piece(part, part.face ? face : 'idle'), 0, 0);
   return c;
 }
 

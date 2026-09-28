@@ -100,3 +100,36 @@ describe('summarize', () => {
 test('median', () => {
   expect([median([]), median([3]), median([1, 9, 2]), median([1, 2, 3, 10])]).toEqual([null, 3, 2, 2.5]);
 });
+
+describe('counting players', () => {
+  const DAY = 86400000;
+  const now = Date.parse('2026-09-28T18:00:00Z');
+  const base = { test: false, events: 5, device: 'mobile', browser: 'Safari', locale: 'pt', country: 'BR', newVisitor: false, visit: true, seasons: [], settings: null, fps: [], errors: {}, names: { accepted: 0, rejected: 0 } };
+  const session = (id: string, visitor: string, at: number, firstSeen: number, visit = true): SessionRecord =>
+    ({ ...base, id, firstAt: at, lastAt: at + 60000, visitorKey: `real:${visitor}`, visitorFirstAt: firstSeen, newVisitor: at === firstSeen, visit });
+
+  test('one browser playing twice on the same day is one new player and not returning', () => {
+    const s = summarize([session('a', 'v1', now - 3 * 3600000, now - 3 * 3600000), session('b', 'v1', now - 3600000, now - 3 * 3600000)], [], 7, 'real', now, now - 30 * DAY);
+    expect(s.audience).toMatchObject({ visitors: 1, newVisitors: 1, returningVisitors: 0, sessions: 2 });
+  });
+
+  test('coming back on a later day counts as returning, even inside the same period', () => {
+    const first = now - 2 * DAY;
+    const s = summarize([session('a', 'v1', first, first), session('b', 'v1', now - 3600000, first)], [], 7, 'real', now, now - 30 * DAY);
+    expect(s.audience).toMatchObject({ visitors: 1, newVisitors: 1, returningVisitors: 1 });
+    const days = s.audience.daily.filter((d) => d.visitors);
+    expect(days.map((d) => [d.newVisitors, d.returning])).toEqual([[1, 0], [0, 1]]);
+  });
+
+  test('older records without a first-seen time still count a same-day second visit as one new player', () => {
+    const legacy = (id: string, at: number, isNew: boolean): SessionRecord => ({ ...session(id, 'v9', at, at), visitorFirstAt: undefined, newVisitor: isNew });
+    const s = summarize([legacy('a', now - 3 * 3600000, true), legacy('b', now - 3600000, false)], [], 7, 'real', now, now - 30 * DAY);
+    expect(s.audience).toMatchObject({ visitors: 1, newVisitors: 1, returningVisitors: 0 });
+  });
+
+  test('landing-page-only browsers are seen but are not players', () => {
+    const s = summarize([session('a', 'v1', now - 3600000, now - 3600000), session('b', 'v2', now - 1800000, now - 1800000, false)], [], 7, 'real', now, now - 30 * DAY);
+    expect([s.audience.visitors, s.audience.browsersSeen]).toEqual([1, 2]);
+    expect(s.audience.playerDevices).toEqual([{ key: 'mobile|Safari', n: 1 }]);
+  });
+});
