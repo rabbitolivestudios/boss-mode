@@ -1,9 +1,11 @@
 import './style.css';
-import { BOSSES, type BossId } from './game/config';
+import { BOSSES, NIGHTS, type BossId } from './game/config';
 import { BuildUi } from './game/buildui';
 import { Game, type SeasonSave } from './game/game';
 import { Input } from './game/input';
-import { toggleMute, unlockAudio } from './game/sfx';
+import { cycleSound, duckMusic, soundSetting, unlockAudio, type SoundSetting } from './game/audio';
+import { music, type Mood } from './game/music';
+import { board, drawBoard, playerName, rerollName, spinsLeft } from './game/leaderboard';
 import { currentStyle } from './game/style';
 import { Ui } from './game/ui';
 import { World } from './game/world';
@@ -42,6 +44,7 @@ const game: Game = new Game(world, byId('labels'), {
   end: (s) => {
     if (s.win) writeSave(null);
     ui.end(s, () => { ui.showTitle(begin); showContinue(); }, s.win ? undefined : () => { byId('end').classList.add('hidden'); game.retryNight(); });
+    void board.submit(s);
   },
   build: (night) => {
     ui.hud(false);
@@ -107,15 +110,63 @@ byId('btn-quit').addEventListener('click', () => {
   ui.showTitle(begin);
   showContinue();
 });
-byId('btn-mute').addEventListener('click', (e) => {
-  (e.currentTarget as HTMLElement).textContent = toggleMute() ? '🔇' : '🔊';
-});
+const SOUND_ICON: Record<SoundSetting, [string, string]> = {
+  all: ['🔊', 'Music and sound on'], sfx: ['🔈', 'Sound effects only'], off: ['🔇', 'Sound off'],
+};
+function showSound(s: SoundSetting): void {
+  const btn = byId('btn-mute');
+  [btn.textContent, btn.title] = SOUND_ICON[s];
+}
+showSound(soundSetting());
+byId('btn-mute').addEventListener('click', () => showSound(cycleSound()));
+// Browsers only start audio after a gesture, so the first tap or key anywhere starts the title music.
+for (const ev of ['pointerdown', 'keydown'] as const) window.addEventListener(ev, unlockAudio, { capture: true });
+
+/** Which loop fits the moment: champions take over the night, the Chosen One gets the key change. */
+function mood(): Mood {
+  if (game.phase === 'title') return 'title';
+  if (game.phase === 'build') return 'build';
+  if (game.phase === 'raid' && game.running) {
+    if (game.champions.some((c) => c.final)) return 'final';
+    return game.champions.length ? 'champion' : 'raid';
+  }
+  return 'none';
+}
+
+function updateMusic(): void {
+  music.set(mood());
+  if (game.phase === 'raid') {
+    const d = NIGHTS[game.night].duration;
+    const progress = Number.isFinite(d) ? game.nightTime / d : 1;
+    music.setIntensity(0.2 + progress * 0.7 + (game.champions.length ? 0.3 : 0) + (game.frenzy > 0 ? 0.3 : 0));
+  }
+  duckMusic(game.paused || game.choosing ? 0.35 : 1);
+}
 document.addEventListener('visibilitychange', () => {
   if (document.hidden && game.running && !game.paused && !game.choosing) togglePause();
 });
 
 ui.showTitle(begin);
 showContinue();
+
+function showName(): void {
+  byId('player-name').textContent = playerName();
+  const btn = byId('btn-reroll') as HTMLButtonElement;
+  const left = spinsLeft();
+  btn.textContent = left ? `🎲 ${left}` : '🔒';
+  btn.disabled = !left;
+  btn.title = left ? `Roll a new name (${left} left)` : 'Your name is locked in';
+}
+function showBoards(): void {
+  drawBoard(byId('board'));
+  const last = board.last;
+  byId('end-score').textContent = last ? `SCORE ${last.score.toLocaleString()}${last.rank ? ` · #${last.rank} ${board.isShared() ? 'in the Hall!' : 'of your seasons'}` : ''}` : '';
+  drawBoard(byId('end-board'), last?.score);
+}
+byId('btn-reroll').addEventListener('click', () => { rerollName(); showName(); });
+board.onChange(showBoards);
+showName();
+showBoards();
 // Exposed in dev builds only, so playtest scripts can read the run's numbers.
 if (import.meta.env.MODE !== 'production') (window as unknown as { game: Game }).game = game;
 
@@ -130,6 +181,7 @@ function frame(now: number): void {
   if (game.running) ui.update(game);
   else if (game.phase === 'build') buildUi.refresh();
   world.render();
+  updateMusic();
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);

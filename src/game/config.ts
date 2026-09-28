@@ -379,3 +379,16 @@ export const LIMIT_BREAKS: { id: 'might' | 'haste' | 'hp' | 'speed'; name: strin
 
 /** Hero health rises this much per night on top of the time curve, so later nights hit harder in kind. */
 export const NIGHT_TOUGHNESS = 0.15;
+
+/**
+ * Leaderboard score for a season. Nights are worth the most so a deep run beats a farmed one;
+ * retries cost enough that winning first time outranks grinding one night; harder tiers multiply.
+ */
+export const SCORE = {
+  night: 1000,
+  win: 2000,
+  gold: 10,
+  kill: 1,
+  retry: 500,
+  tier: { chill: 0.5, normal: 1, heroic: 1.5, legendary: 2 } as Record<string, number>,
+};

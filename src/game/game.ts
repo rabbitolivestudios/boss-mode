@@ -54,7 +54,7 @@ export type Choice =
   | { kind: 'limit'; id: 'might' | 'haste' | 'hp' | 'speed' }
   | { kind: 'snack' };
 
-export interface Summary { difficulty: Difficulty; win: boolean; time: number; kills: number; level: number; boss: BossId; champions: number; bestCombo: number; treasure: number; stolen: number; reason: 'hp' | 'vault' | 'win'; escapes: Escape[]; allPicksAt: number | null; night: number }
+export interface Summary { season: number; retries: number; difficulty: Difficulty; win: boolean; time: number; kills: number; level: number; boss: BossId; champions: number; bestCombo: number; treasure: number; stolen: number; reason: 'hp' | 'vault' | 'win'; escapes: Escape[]; allPicksAt: number | null; night: number }
 
 export interface GameHooks {
   levelUp(choices: Choice[]): void;
@@ -80,6 +80,8 @@ export interface SeasonSave {
   seed: number;
   level: number; xp: number; weapons: [WeaponId, number][]; passives: [PassiveId, number][];
   kills: number; stolen: number; championsBeaten: number; bestCombo: number;
+  /** Nights replayed after a loss; each one costs leaderboard score. */
+  retries?: number;
   nextSquad: number; nextHeist: number; escapes: Escape[];
 }
 
@@ -116,6 +118,7 @@ export class Game {
 
   heroes: Hero[] = [];
   champions: Hero[] = [];
+  retries = 0;
   private shots: Shot[] = [];
   private gems: Gem[] = [];
   private lava: Lava[] = [];
@@ -281,6 +284,7 @@ export class Game {
   start(boss: BossId, difficulty: Difficulty = DIFFICULTIES[DEFAULT_TIER]): void {
     this.difficulty = difficulty;
     this.reset();
+    this.retries = 0;
     this.bossId = boss;
     const def = BOSSES[boss];
     if (this.model) this.world.scene.remove(this.model.root);
@@ -469,7 +473,7 @@ export class Game {
 
   /** Replays the current night from its build phase. */
   retryNight(): void {
-    if (this.save) this.restore(this.save);
+    if (this.save) this.restore({ ...this.save, retries: (this.save.retries ?? 0) + 1 });
   }
 
   nightLeft(): number {
@@ -490,7 +494,7 @@ export class Game {
     if (why) return why;
     this.castle.place(cx, cz, id, this.night, BUILDINGS[id].hp);
     this.treasure -= BUILDINGS[id].cost;
-    sfx.coin();
+    sfx.place();
     const [x, z] = this.castle.center(cx, cz);
     this.fx.burst(x, 0.5, z, 0xc08a4c, 8, 4, 0.18);
     return null;
@@ -510,7 +514,7 @@ export class Game {
     if (!b) return false;
     this.treasure += this.refund(cx, cz);
     this.castle.remove(b);
-    sfx.pop();
+    sfx.sell();
     return true;
   }
 
@@ -520,7 +524,7 @@ export class Game {
       buildings: this.castle.buildings.map((b) => [b.id, b.cx, b.cz, b.night, b.hp]),
       seed: this.seasonSeed,
       level: this.level, xp: this.xp, weapons: [...this.weapons].map(([id, w]) => [id, w.level]), passives: [...this.passives],
-      kills: this.kills, stolen: this.stolen, championsBeaten: this.championsBeaten, bestCombo: this.bestCombo,
+      kills: this.kills, stolen: this.stolen, championsBeaten: this.championsBeaten, bestCombo: this.bestCombo, retries: this.retries,
       nextSquad: this.nextSquad, nextHeist: this.nextHeist, escapes: [...this.escapes],
     };
   }
@@ -538,6 +542,7 @@ export class Game {
     this.nextSquad = sv.nextSquad; this.nextHeist = sv.nextHeist; this.escapes = [...sv.escapes];
     this.nextChampion = CHAMPIONS.filter((c) => c.night - 1 < sv.night).length;
     this.seasonSeed = sv.seed ?? 1;
+    this.retries = sv.retries ?? 0;
     this.castle.clear();
     for (const [id, cx, cz, night, hp] of sv.buildings) { const b = this.castle.place(cx, cz, id, night ?? sv.night, BUILDINGS[id].hp); b.hp = hp ?? b.maxHp; }
     this.enterBuild();
@@ -698,6 +703,8 @@ export class Game {
     this.phase = 'over';
     if (win) sfx.win(); else sfx.lose();
     this.hooks.end({
+      season: this.seasonSeed,
+      retries: this.retries,
       difficulty: this.difficulty, win, reason, time: this.time, kills: this.kills, level: this.level, boss: this.bossId, champions: this.championsBeaten,
       bestCombo: this.bestCombo, treasure: this.treasure, stolen: this.stolen, escapes: this.escapes, allPicksAt: this.allPicksAt, night: this.night,
     });
@@ -1109,7 +1116,7 @@ export class Game {
     if (this.phase !== 'build' || cost <= 0 || this.treasure - cost < 1) return false;
     this.treasure -= cost;
     for (const b of this.castle.buildings) b.hp = b.maxHp;
-    sfx.coin();
+    sfx.repair();
     return true;
   }
 

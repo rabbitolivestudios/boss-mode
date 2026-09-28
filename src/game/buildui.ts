@@ -3,6 +3,7 @@ import { BUILDINGS, CASTLE, HEROES, NIGHTS, type BuildingId, type HeroKind } fro
 import { castFor, castPortrait } from './cast';
 import type { Game, NightReport } from './game';
 import type { World } from './world';
+import { sfx } from './sfx';
 
 // The between-nights interface: the build bar, placing and selling on the grid, and the dawn report.
 
@@ -95,7 +96,7 @@ export class BuildUi {
       b.className = 'tool';
       b.dataset.tool = id;
       b.innerHTML = `<span class="ti">${icon}</span><span class="tn">${label}</span>${cost !== undefined ? `<span class="tc">💰${cost}</span>` : ''}`;
-      b.onclick = () => { this.tool = id; this.refresh(); this.say(id === 'sell' ? 'Tap a building to sell it for a full refund' : BUILDINGS[id].blurb); };
+      b.onclick = () => { this.tool = id; sfx.click(); this.refresh(); this.say(id === 'sell' ? 'Tap a building to sell it for a full refund' : BUILDINGS[id].blurb); };
       tools.appendChild(b);
     };
     for (const id of Object.keys(BUILDINGS) as BuildingId[]) add(id, BUILDINGS[id].icon, BUILDINGS[id].name, BUILDINGS[id].cost);
