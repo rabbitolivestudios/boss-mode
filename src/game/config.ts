@@ -10,7 +10,11 @@ export const RUN = {
   spawnBase: 0.9,
   spawnRamp: 1 / 40,
   spawnCap: 14,
-  /** Hero HP multiplier grows by 1 every this many seconds. */
+  /**
+   * Hero HP multiplier = 1 + t / hpGrowthPeriod. Late in a run the player's build outgrows this on
+   * purpose: the final minutes are the power fantasy, and challenge comes from the difficulty tiers.
+   * Steeper growth and faster late spawns were tried and only fed the player more XP.
+   */
   hpGrowthPeriod: 200,
   /** Chance a defeated hero drops a drumstick, and how much it heals. */
   snackChance: 0.012,
@@ -57,6 +61,25 @@ export const TREASURE = {
   heistSize: 5,
   heistGrowth: 70,
 };
+
+export type DifficultyId = 'normal' | 'heroic' | 'legendary';
+
+export interface Difficulty {
+  id: DifficultyId;
+  name: string;
+  /** Multipliers on hero health, spawn rate, hero damage, and the share of heroes who go for the gold. */
+  hp: number;
+  spawn: number;
+  damage: number;
+  loot: number;
+}
+
+/** Each tier unlocks by winning the one before it. */
+export const DIFFICULTIES: Difficulty[] = [
+  { id: 'normal', name: 'Normal', hp: 1, spawn: 1, damage: 1, loot: 1 },
+  { id: 'heroic', name: 'Heroic', hp: 1.5, spawn: 1.25, damage: 1.2, loot: 1.3 },
+  { id: 'legendary', name: 'Legendary', hp: 2.2, spawn: 1.5, damage: 1.4, loot: 1.6 },
+];
 
 export type HeroKind = 'noob' | 'archer' | 'knight' | 'sweat' | 'healer' | 'rogue' | 'champion';
 

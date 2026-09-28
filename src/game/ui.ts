@@ -1,4 +1,4 @@
-import { BOSSES, PASSIVES, TREASURE, WEAPONS, type BossId } from './config';
+import { BOSSES, DIFFICULTIES, PASSIVES, TREASURE, WEAPONS, type BossId, type Difficulty } from './config';
 import { bossPortrait } from './bossart';
 import type { Choice, Game, Summary } from './game';
 
@@ -13,14 +13,19 @@ function fmt(t: number): string {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
-interface Best { time: number; kills: number; combo: number; wins: number }
+/** `unlocked` is the highest difficulty index the player may pick (a win unlocks the next one). */
+interface Best { time: number; kills: number; combo: number; wins: number; unlocked: number }
 
 function loadBest(): Best {
   try {
     const raw = localStorage.getItem('boss-mode-best');
-    if (raw) return { time: 0, kills: 0, combo: 0, wins: 0, ...(JSON.parse(raw) as Partial<Best>) };
+    if (raw) {
+      const saved = JSON.parse(raw) as Partial<Best>;
+      // Wins recorded before difficulty tiers existed still count as a Normal win.
+      return { time: 0, kills: 0, combo: 0, wins: 0, ...saved, unlocked: saved.unlocked ?? (saved.wins ? 1 : 0) };
+    }
   } catch { /* storage can be blocked; bests are a nicety */ }
-  return { time: 0, kills: 0, combo: 0, wins: 0 };
+  return { time: 0, kills: 0, combo: 0, wins: 0, unlocked: 0 };
 }
 
 function saveBest(b: Best): void {
@@ -32,6 +37,8 @@ export class Ui {
   private lastAbilities = '';
   private comboTimer = 0;
   private portraits = new Map<BossId, HTMLCanvasElement>();
+  /** The difficulty picked on the title screen. */
+  difficulty: Difficulty = DIFFICULTIES[0];
 
   showTitle(onPick: (b: BossId) => void): void {
     $('hud').classList.add('hidden');
@@ -53,7 +60,26 @@ export class Ui {
       pick.appendChild(btn);
     }
     const best = loadBest();
+    this.drawDifficulty(best.unlocked);
     $('best').textContent = best.kills ? `Best: ${fmt(best.time)} survived · ${best.kills} heroes · ${best.combo}x combo · ${best.wins} wins` : '';
+  }
+
+  private drawDifficulty(unlocked: number): void {
+    const box = $('difficulty');
+    box.innerHTML = '';
+    if (DIFFICULTIES.indexOf(this.difficulty) > unlocked) this.difficulty = DIFFICULTIES[0];
+    DIFFICULTIES.forEach((d, i) => {
+      const btn = document.createElement('button');
+      const locked = i > unlocked;
+      btn.className = `diff${d === this.difficulty ? ' on' : ''}${locked ? ' locked' : ''}`;
+      btn.textContent = locked ? `🔒 ${d.name}` : d.name;
+      btn.title = locked ? `Win on ${DIFFICULTIES[i - 1].name} to unlock` : '';
+      btn.disabled = locked;
+      btn.onclick = () => { this.difficulty = d; this.drawDifficulty(unlocked); };
+      box.appendChild(btn);
+    });
+    const next = DIFFICULTIES[unlocked + 1];
+    $('difficulty-hint').textContent = next ? `Win on ${DIFFICULTIES[unlocked].name} to unlock ${next.name}` : 'Every difficulty unlocked!';
   }
 
   startRun(): void {
@@ -206,7 +232,11 @@ export class Ui {
       <div><b>${s.kills}${rec(s.kills, best.kills)}</b>heroes beaten</div>
       <div><b>${s.bestCombo}x${rec(s.bestCombo, best.combo)}</b>best combo</div>
       <div><b>💰 ${s.treasure}</b>gold kept</div>`;
+    const tier = DIFFICULTIES.indexOf(s.difficulty);
+    const unlocks = s.win && tier === best.unlocked && tier + 1 < DIFFICULTIES.length;
+    if (unlocks) $('end-sub').textContent += ` ${DIFFICULTIES[tier + 1].name.toUpperCase()} mode unlocked!`;
     saveBest({
+      unlocked: unlocks ? tier + 1 : best.unlocked,
       time: Math.max(best.time, s.time), kills: Math.max(best.kills, s.kills),
       combo: Math.max(best.combo, s.bestCombo), wins: best.wins + (s.win ? 1 : 0),
     });

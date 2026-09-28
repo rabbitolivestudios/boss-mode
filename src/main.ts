@@ -33,7 +33,7 @@ function begin(boss: BossId): void {
   unlockAudio();
   lastBoss = boss;
   ui.startRun();
-  game.start(boss);
+  game.start(boss, ui.difficulty);
 }
 
 function togglePause(): void {

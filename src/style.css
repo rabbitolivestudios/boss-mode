@@ -141,3 +141,9 @@ h2 { font-size: clamp(36px, 8vw, 64px); margin: 0; color: var(--gold); text-shad
 @media (max-width: 600px) { .boss-card .portrait { width: 96px; height: 96px; margin: -10px auto -4px; } }
 body.style-dungeon::after { content: ''; position: fixed; inset: 0; pointer-events: none; z-index: 3; background: radial-gradient(ellipse at center, transparent 45%, rgba(5, 2, 12, 0.75) 100%); }
 body.style-diorama::after { content: ''; position: fixed; inset: 0; pointer-events: none; z-index: 3; background: radial-gradient(ellipse at center, transparent 60%, rgba(60, 40, 10, 0.25) 100%); }
+
+#difficulty { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+.diff { font-family: var(--font); font-size: 17px; padding: 6px 16px; border-radius: 12px; border: 3px solid var(--ink); background: #2e1f57; color: #fff; cursor: pointer; box-shadow: 0 4px 0 #000; }
+.diff.on { background: var(--gold); color: var(--ink); }
+.diff.locked { opacity: .55; cursor: not-allowed; box-shadow: none; }
+.diff:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }

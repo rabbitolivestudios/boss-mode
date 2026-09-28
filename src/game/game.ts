@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import {
-  BOSSES, CHAMPIONS, HEROES, MAX_LEVEL, MINION, PASSIVES, PHYSICS, RUN, TRAPS, TREASURE, WAVES, WEAPONS, XP, xpToNext,
-  type BossId, type HeroDef, type HeroKind, type PassiveId, type WeaponId,
+  BOSSES, CHAMPIONS, DIFFICULTIES, HEROES, MAX_LEVEL, MINION, PASSIVES, PHYSICS, RUN, TRAPS, TREASURE, WAVES, WEAPONS, XP, xpToNext,
+  type BossId, type Difficulty, type HeroDef, type HeroKind, type PassiveId, type WeaponId,
 } from './config';
 import { Fx } from './fx';
 import { buildBoss, instanced, toon, type BossModel } from './models';
@@ -49,7 +49,7 @@ export type Choice =
   | { kind: 'passive'; id: PassiveId; level: number }
   | { kind: 'snack' };
 
-export interface Summary { win: boolean; time: number; kills: number; level: number; boss: BossId; champions: number; bestCombo: number; treasure: number; stolen: number; reason: 'hp' | 'vault' | 'win'; escapes: Escape[] }
+export interface Summary { difficulty: Difficulty; win: boolean; time: number; kills: number; level: number; boss: BossId; champions: number; bestCombo: number; treasure: number; stolen: number; reason: 'hp' | 'vault' | 'win'; escapes: Escape[] }
 
 export interface GameHooks {
   levelUp(choices: Choice[]): void;
@@ -71,6 +71,7 @@ const MAX_TRAPS = 12;
 export class Game {
   readonly fx: Fx;
   bossId: BossId = 'dragon';
+  difficulty: Difficulty = DIFFICULTIES[0];
   private model: BossModel | null = null;
   private bossShadow: THREE.Mesh;
 
@@ -217,7 +218,8 @@ export class Game {
     }
   }
 
-  start(boss: BossId): void {
+  start(boss: BossId, difficulty: Difficulty = DIFFICULTIES[0]): void {
+    this.difficulty = difficulty;
     this.reset();
     this.bossId = boss;
     const def = BOSSES[boss];
@@ -375,7 +377,7 @@ export class Game {
     this.running = false;
     if (win) sfx.win(); else sfx.lose();
     this.hooks.end({
-      win, reason, time: this.time, kills: this.kills, level: this.level, boss: this.bossId, champions: this.championsBeaten,
+      difficulty: this.difficulty, win, reason, time: this.time, kills: this.kills, level: this.level, boss: this.bossId, champions: this.championsBeaten,
       bestCombo: this.bestCombo, treasure: this.treasure, stolen: this.stolen, escapes: this.escapes,
     });
   }
@@ -423,7 +425,7 @@ export class Game {
     if (champ && t >= champ.at) {
       this.nextChampion++;
       const h = this.makeHero('champion');
-      h.hp = h.maxHp = HEROES.champion.hp * champ.hpMul;
+      h.hp = h.maxHp = HEROES.champion.hp * champ.hpMul * this.difficulty.hp;
       h.tag = champ.name;
       h.final = champ.final === true;
       h.champ = this.nextChampion - 1;
@@ -441,7 +443,7 @@ export class Game {
       this.nextHeist += TREASURE.heistEvery;
       // The crew picks the gate farthest from the boss, so guarding the vault means leaving it.
       const gate = [...this.gates].sort((a, b) => Math.hypot(b.x - this.x, b.z - this.z) - Math.hypot(a.x - this.x, a.z - this.z))[0];
-      const size = Math.round(TREASURE.heistSize + t / TREASURE.heistGrowth);
+      const size = Math.round((TREASURE.heistSize + t / TREASURE.heistGrowth) * this.difficulty.loot);
       for (let i = 0; i < size && this.heroes.length < RUN.maxHeroes; i++) {
         const h = this.addHero('rogue', gate.x + (Math.random() - 0.5) * 3, gate.z + (Math.random() - 0.5) * 3);
         if (i === 0) this.chatter.say(h, 'HEIST TIME!', 2.4, true);
@@ -463,7 +465,7 @@ export class Game {
       }
     }
 
-    const rate = Math.min(RUN.spawnCap, RUN.spawnBase + t * RUN.spawnRamp);
+    const rate = Math.min(RUN.spawnCap, RUN.spawnBase + t * RUN.spawnRamp) * this.difficulty.spawn;
     this.spawnAcc += rate * dt;
     while (this.spawnAcc >= 1) {
       this.spawnAcc -= 1;
@@ -491,12 +493,17 @@ export class Game {
   }
 
   private lootShare(): number {
-    return Math.min(TREASURE.lootShareCap, TREASURE.lootShareBase + this.time * TREASURE.lootShareRamp);
+    return Math.min(TREASURE.lootShareCap, TREASURE.lootShareBase + this.time * TREASURE.lootShareRamp) * this.difficulty.loot;
+  }
+
+  /** How much tougher heroes are right now, including the difficulty tier. */
+  private heroToughness(): number {
+    return (1 + this.time / RUN.hpGrowthPeriod) * this.difficulty.hp;
   }
 
   private addHero(kind: HeroKind, x: number, z: number): Hero {
     const def = HEROES[kind];
-    const hp = def.hp * (1 + this.time / RUN.hpGrowthPeriod);
+    const hp = def.hp * this.heroToughness();
     const h: Hero = {
       kind, def, x, z, hp, maxHp: hp, kx: 0, kz: 0, cd: Math.random() * (def.ranged?.cooldown ?? def.heal?.cooldown ?? 1),
       dashT: 0, dashCd: Math.random() * 3, flash: 0, face: 0, phase: Math.random() * 6, alive: true, batCd: 0, trapCd: 0,
@@ -531,7 +538,7 @@ export class Game {
   }
 
   private updateHeroes(dt: number): void {
-    const dmgScale = 1 + this.time / 400;
+    const dmgScale = (1 + this.time / 400) * this.difficulty.damage;
     const decay = Math.exp(-8 * dt);
     let contact = 0;
     for (const h of this.heroes) {
@@ -585,7 +592,7 @@ export class Game {
         h.cd -= dt;
         if (h.cd <= 0) {
           h.cd = def.heal.cooldown;
-          const amt = def.heal.amount * (1 + this.time / RUN.hpGrowthPeriod);
+          const amt = def.heal.amount * this.heroToughness();
           this.near(h.x, h.z, def.heal.range, (o) => { if (o !== h && o.hp < o.maxHp) { o.hp = Math.min(o.maxHp, o.hp + amt); this.fx.burst(o.x, 1.2, o.z, 0x7dffb0, 2, 2, 0.15); } });
           this.fx.burst(h.x, 1.6, h.z, 0x7dffb0, 4, 2, 0.14);
           this.act(h, 'raise', 0.6);
