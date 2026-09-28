@@ -112,6 +112,12 @@ You are the final boss in *Heroes Online*, a huge fantasy game, programmed to lo
 4. **Nemesis heroes.**
 5. **Boss Break Room and the story frame.**
 
+**v3 phase 1 (built):** breach ring with a surprise breach, counter heroes (Shieldbearer, Glider, Trap Nerd, Sapper), building health and repair, adaptive counters, source-based damage, limit breaks. Details in `docs/V3-PROPOSAL.md`.
+
+**Sound (built):** everything is synthesized in `src/game/audio.ts`, so there are no files to license. `src/game/music.ts` plays four loops written as code: the title theme, calm build music, a raid beat that adds an arpeggio and then a lead melody as the night goes on, and a champion theme that shifts key for the Chosen One. The music ducks under pause and level-up screens. The sound button cycles through all sound, effects only, and off, and the choice is remembered.
+
+**Hall of Bosses (built):** players never type a name; each device gets a generated two-word name with three rerolls before it locks. Season score = nights survived × 1000 + 2000 for a win + gold kept × 10 + heroes beaten − 500 per retry, times the tier (Chill 0.5, Normal 1, Heroic 1.5, Legendary 2); the numbers live in `SCORE` in `src/game/config.ts`. A retried season keeps one row, its best. The board is shared when the page runs in claude.ai with the artifact store granted, and local to the device otherwise. The shared store makes an artifact organization-only, so the public play link keeps the local board.
+
 Later: raids against friends (friends design a hero party that raids your castle, with no chat), boss Phase 2 transformations, more bosses and biomes.
 
 **Risks to watch:** pathfinding for 500 heroes (a shared flow field on the grid keeps this cheap), a building interface that works with thumbs on a phone, and scope: each step above should be playable and playtested before the next starts.
