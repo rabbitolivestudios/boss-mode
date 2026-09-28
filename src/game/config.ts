@@ -42,8 +42,20 @@ export const TREASURE = {
   /** Thieves are weighed down by the bag, so the boss can catch them. */
   thiefSpeed: 0.85,
   /** Gates sit on a ring this far from the vault; heroes enter and escape through them. */
-  gateRadius: 26,
-  gates: 4,
+  /** Breach points sit on a ring this far from the vault (inside the castle grid). */
+  gateRadius: 22,
+  /** Candidate breach points around the ring; a few open each night. */
+  gates: 12,
+  /** Active breaches per night; the last night opens them all. */
+  breachesPerNight: [2, 2, 3, 3, 4, 4, 12],
+  /** Surprise breaches open from this night (0-based) at this share of the night, after a telegraph. */
+  surpriseFromNight: 3,
+  surpriseAt: 0.4,
+  surpriseWarning: 3,
+  /** Standing within this distance of a warned breach when it opens cancels it. */
+  surpriseCancel: 2.6,
+  surpriseMinDistance: 12,
+  surpriseCrew: 8,
   /** How close to a gate a thief must get to escape. */
   escapeDistance: 1.6,
   /** Share of non-rogue heroes that go for the gold instead of the boss: base + t * ramp, capped. */
@@ -184,7 +196,8 @@ export const CASTLE = {
   half: 12,
   /** Nothing can be built this close to the vault or to a gate. */
   vaultClear: 3.5,
-  gateClear: 3.5,
+  /** No-build radius around an active breach, wide enough that traps cannot seal a spawn point. */
+  breachClear: 5,
   /** Buildable only inside this radius; heroes still walk the whole grid. */
   buildRadius: 23,
   spikeDamage: 8,
@@ -193,6 +206,10 @@ export const CASTLE = {
   towerRange: 10,
   towerEvery: 1.1,
   towerDamage: 12,
+  /** Selling a building placed on an earlier night refunds this share (same-night undo stays free). */
+  oldRefund: 0.5,
+  /** Buildings wrecked by a new breach refund this share. */
+  shredRefund: 0.5,
   padDamage: 8,
   sawDamage: 12,
 };

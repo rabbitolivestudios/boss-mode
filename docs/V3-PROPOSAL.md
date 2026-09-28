@@ -430,7 +430,15 @@ Also ask a 10–14 year-old to play Chill and Normal. Keeping Normal winnable fo
 
 ---
 
-## 6. Open questions for the owner
+## 6. Owner decisions (answered)
+
+1. **Breaches:** show most breaches in the build phase, plus one surprise breach per night from night 4.
+2. **Buildings can be destroyed:** yes. Sappers, building HP and dawn repair move into phase 1.
+3. **Normal is tuned to challenge an experienced player** (the owner); Chill is the tier for younger kids.
+4. **Leaderboard:** a shared online board using generated two-word names only, stored with the published page's shared storage (no separate server, no free text, no personal data).
+5. Still open: whether the 7-night season stays the main unit of play or Endless takes over after a first win. Default until decided: keep the 7-night season.
+
+## 7. Open questions for the owner (as originally asked)
 
 1. **Preview or surprise?** Should the next night's breaches be shown during the build phase, so building is planned (Thronefall, Kingdom Rush), or only when the night starts, so building protects the vault as a zone (DOORS-style)? My recommendation is to show most breaches and keep one surprise per night from night 4. The choice decides how A1 and A3 are built.
 2. **Can buildings be destroyed?** Yes unlocks Sappers, repair economy and Diggers (D2, A5). No means counters must only bypass or disarm temporarily.

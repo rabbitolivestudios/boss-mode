@@ -41,6 +41,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #1b1033; col
 @keyframes alarm { to { box-shadow: 0 0 14px 4px #ff3d5a; border-color: #ff3d5a; } }
 .marker { position: absolute; left: 0; top: 0; width: 40px; height: 40px; margin: -20px 0 0 -20px; border-radius: 50%; border: 3px solid var(--ink); display: grid; place-items: center; font-size: 20px; background: var(--gold); box-shadow: 0 3px 0 rgba(0,0,0,.35); }
 .marker[hidden] { display: none; }
+.marker.breach { background: #ff3d5a; animation: alarm .25s infinite alternate; }
 .marker.thief { background: #ff3d5a; animation: alarm .4s infinite alternate; }
 .marker i { position: absolute; left: 50%; top: 50%; width: 0; height: 0; border: 8px solid transparent; border-left: 12px solid var(--ink); margin: -8px 0 0 -6px; }
 #timer { flex: 1; text-align: center; font-size: 30px; text-shadow: 0 3px 0 #000; }
@@ -173,3 +174,6 @@ body.style-diorama::after { content: ''; position: fixed; inset: 0; pointer-even
   .tool .tn { font-size: 11px; }
   #build-top { font-size: 22px; }
 }
+
+.tag.breach { font-size: 14px; background: #ff3d5a; color: #fff; box-shadow: 0 3px 0 #8a0f24; }
+.tag.breach[hidden] { display: none; }

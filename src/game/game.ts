@@ -71,7 +71,8 @@ export interface NightReport { night: number; kills: number; stolen: number; rec
 /** Everything needed to replay a night from its build phase, or to continue a season later. */
 export interface SeasonSave {
   boss: BossId; difficulty: string; night: number; treasure: number; time: number;
-  buildings: [BuildingId, number, number][];
+  buildings: [BuildingId, number, number, number][];
+  seed: number;
   level: number; xp: number; weapons: [WeaponId, number][]; passives: [PassiveId, number][];
   kills: number; stolen: number; championsBeaten: number; bestCombo: number;
   nextSquad: number; nextHeist: number; escapes: Escape[];
@@ -121,7 +122,13 @@ export class Game {
   treasure: number = TREASURE.start;
   stolen = 0;
   escapes: Escape[] = [];
-  readonly gates: { x: number; z: number }[] = [];
+  /** Every possible breach point, and tonight's active ones (heroes enter and thieves leave through these). */
+  readonly breaches: { x: number; z: number }[] = [];
+  gates: { x: number; z: number }[] = [];
+  /** A telegraphed breach about to open mid-night; standing on it cancels it. */
+  surprise: { x: number; z: number; t: number; done: boolean } | null = null;
+  private surpriseDone = false;
+  private seasonSeed = 1;
   private spills: Spill[] = [];
   private warnedThief = false;
   private nextHeist: number = TREASURE.heistFirst;
@@ -168,9 +175,10 @@ export class Game {
     this.chatter = new Chatter(labelLayer, world.camera);
     for (let i = 0; i < TREASURE.gates; i++) {
       const a = (i / TREASURE.gates) * Math.PI * 2 + Math.PI / 4;
-      this.gates.push({ x: Math.cos(a) * TREASURE.gateRadius, z: Math.sin(a) * TREASURE.gateRadius });
+      this.breaches.push({ x: Math.cos(a) * TREASURE.gateRadius, z: Math.sin(a) * TREASURE.gateRadius });
     }
-    this.castle = new Castle(this.gates);
+    this.castle = new Castle(this.breaches);
+    this.gates = this.breaches.slice(0, 2);
     // Build-phase grid: one flat tile per cell, tinted by what can be built there.
     const tile = new THREE.PlaneGeometry(CASTLE.cell * 0.92, CASTLE.cell * 0.92);
     tile.rotateX(-Math.PI / 2);
@@ -180,7 +188,7 @@ export class Game {
     world.scene.add(this.gridMesh);
     // Keep scenery off the vault and out of the gateways.
     // The whole castle is kept clear so buildings never hide behind trees.
-    world.keepClear = [{ x: 0, z: 0, r: CASTLE.buildRadius + 1.5 }, ...this.gates.map((g) => ({ x: g.x, z: g.z, r: 4.5 }))];
+    world.keepClear = [{ x: 0, z: 0, r: CASTLE.buildRadius + 3 }];
     const cap = RUN.maxHeroes + 4;
     // The diorama is lit like a painted map, so its figures use matte shading instead of cartoon bands.
     const white = () => (world.style === 'diorama' ? new THREE.MeshLambertMaterial({ color: 0xffffff }) : toon(0xffffff));
@@ -275,7 +283,94 @@ export class Game {
     this.hp = this.maxHp;
     this.castle.clear();
     this.night = 0;
+    this.seasonSeed = 1 + Math.floor(Math.random() * 1e9);
     this.enterBuild();
+  }
+
+  /** Seeded per season and night, so a retried night opens the same breaches. */
+  private nightRng(salt: number): () => number {
+    let s = (this.seasonSeed * 31 + this.night * 7919 + salt * 104729) % 2147483647 || 1;
+    return () => { s = (s * 16807) % 2147483647; return s / 2147483647; };
+  }
+
+  /** Picks tonight's breaches: a few, never the exact same set as last night, all of them on the final night. */
+  private planBreaches(): void {
+    const n = TREASURE.breachesPerNight[this.night] ?? 4;
+    if (n >= this.breaches.length) { this.gates = [...this.breaches]; this.castle.setActive(this.gates); return; }
+    const rng = this.nightRng(1);
+    const prev = new Set(this.gates);
+    let pick: { x: number; z: number }[] = [];
+    for (let tries = 0; tries < 20; tries++) {
+      const pool = [...this.breaches];
+      pick = [];
+      while (pick.length < n) pick.push(pool.splice(Math.floor(rng() * pool.length), 1)[0]);
+      if (this.night === 0 || pick.some((g) => !prev.has(g))) break;
+    }
+    this.gates = pick;
+    this.castle.setActive(this.gates);
+  }
+
+  /** From the surprise night on, one unopened breach cracks open mid-night after a warning. */
+  private updateSurprise(dt: number): void {
+    if (!this.surpriseDone && this.night >= TREASURE.surpriseFromNight && this.gates.length < this.breaches.length
+      && this.nightTime >= NIGHTS[this.night].duration * TREASURE.surpriseAt) {
+      this.surpriseDone = true;
+      const far = this.breaches.filter((b) => !this.gates.includes(b) && Math.hypot(b.x - this.x, b.z - this.z) >= TREASURE.surpriseMinDistance);
+      const pool = far.length ? far : this.breaches.filter((b) => !this.gates.includes(b));
+      const at = pool[Math.floor(this.nightRng(2)() * pool.length)];
+      if (at) {
+        this.surprise = { x: at.x, z: at.z, t: TREASURE.surpriseWarning, done: false };
+        this.hooks.killfeed(`🚨 ${gamerTag()} found a back door!`);
+        this.hooks.banner('BACK DOOR!', 'Stand on the glowing crack to seal it');
+        sfx.siren();
+      }
+    }
+    const sp = this.surprise;
+    if (!sp) return;
+    const before = sp.t;
+    sp.t -= dt;
+    if (Math.floor(before * 3) !== Math.floor(sp.t * 3)) {
+      this.fx.ring(sp.x, sp.z, TREASURE.surpriseCancel, 0xff3d5a, 0.3);
+      this.fx.burst(sp.x, 0.2, sp.z, 0x6a4a2a, 5, 3, 0.2);
+    }
+    if (sp.t > 0) return;
+    this.surprise = null;
+    const at = this.breaches.find((b) => b.x === sp.x && b.z === sp.z);
+    if (Math.hypot(this.x - sp.x, this.z - sp.z) < TREASURE.surpriseCancel || !at) {
+      // Sealed: the telegraph rewards being in the right place.
+      for (let i = 0; i < 10; i++) {
+        const a = (i / 10) * Math.PI * 2;
+        this.gems.push({ x: sp.x + Math.cos(a) * 1.5, z: sp.z + Math.sin(a) * 1.5, value: 2, tier: 1, pulled: true, spin: i });
+      }
+      this.fx.ring(sp.x, sp.z, 4, 0xffd23a, 0.5);
+      this.hooks.banner('SEALED!', 'Back door closed. Bonus gems!');
+      sfx.level();
+      return;
+    }
+    this.gates = [...this.gates, at];
+    this.castle.setActive(this.gates);
+    const wrecked = this.shred();
+    this.world.addShake(0.6);
+    this.fx.burst(sp.x, 0.5, sp.z, 0x6a4a2a, 30, 9, 0.3);
+    const kinds: HeroKind[] = ['rogue', 'rogue', 'noob', 'sweat'];
+    for (let i = 0; i < TREASURE.surpriseCrew && this.heroes.length < RUN.maxHeroes; i++) {
+      this.addHero(kinds[i % kinds.length], sp.x + (Math.random() - 0.5) * 3, sp.z + (Math.random() - 0.5) * 3);
+    }
+    this.hooks.banner('THEY GOT IN!', wrecked ? `A new breach wrecked ${wrecked} building${wrecked > 1 ? 's' : ''}` : 'A new breach is open');
+  }
+
+  /** Buildings caught inside a newly opened breach zone are wrecked, with a partial refund. */
+  private shred(): number {
+    let n = 0;
+    for (const b of [...this.castle.buildings]) {
+      const [x, z] = this.castle.center(b.cx, b.cz);
+      if (!this.castle.inBreach(x, z)) continue;
+      this.castle.remove(b);
+      this.treasure += Math.floor(BUILDINGS[b.id].cost * CASTLE.shredRefund);
+      this.fx.burst(x, 0.8, z, 0xc08a4c, 14, 6, 0.22);
+      n++;
+    }
+    return n;
   }
 
   // ---------- Season ----------
@@ -298,8 +393,12 @@ export class Game {
     this.running = false;
     this.x = 4.5; this.z = 0.5;
     this.hp = this.maxHp;
+    this.surprise = null; this.surpriseDone = false;
+    this.planBreaches();
+    const wrecked = this.shred();
     this.save = this.snapshot();
     this.hooks.build(this.night);
+    if (wrecked) this.hooks.banner('Breach!', `${wrecked} building${wrecked > 1 ? 's were' : ' was'} wrecked by a new breach (half refunded)`);
   }
 
   startRaid(): void {
@@ -359,7 +458,7 @@ export class Game {
     if (this.phase !== 'build') return 'Build between nights';
     const why = this.canBuild(cx, cz, id);
     if (why) return why;
-    this.castle.place(cx, cz, id);
+    this.castle.place(cx, cz, id, this.night);
     this.treasure -= BUILDINGS[id].cost;
     sfx.coin();
     const [x, z] = this.castle.center(cx, cz);
@@ -367,13 +466,20 @@ export class Game {
     return null;
   }
 
-  /** Selling during the build phase refunds the full price, so experimenting is free. */
+  /** What selling a building returns: full price if placed this build phase, less if it survived a night. */
+  refund(cx: number, cz: number): number {
+    const b = this.castle.at(cx, cz);
+    if (!b) return 0;
+    return b.night === this.night ? BUILDINGS[b.id].cost : Math.floor(BUILDINGS[b.id].cost * CASTLE.oldRefund);
+  }
+
+  /** Same-night undo is free, so experimenting costs nothing; moving an old defence costs half its price. */
   sell(cx: number, cz: number): boolean {
     if (this.phase !== 'build') return false;
     const b = this.castle.at(cx, cz);
     if (!b) return false;
+    this.treasure += this.refund(cx, cz);
     this.castle.remove(b);
-    this.treasure += BUILDINGS[b.id].cost;
     sfx.pop();
     return true;
   }
@@ -381,7 +487,8 @@ export class Game {
   private snapshot(): SeasonSave {
     return {
       boss: this.bossId, difficulty: this.difficulty.id, night: this.night, treasure: this.treasure, time: this.time,
-      buildings: this.castle.buildings.map((b) => [b.id, b.cx, b.cz]),
+      buildings: this.castle.buildings.map((b) => [b.id, b.cx, b.cz, b.night]),
+      seed: this.seasonSeed,
       level: this.level, xp: this.xp, weapons: [...this.weapons].map(([id, w]) => [id, w.level]), passives: [...this.passives],
       kills: this.kills, stolen: this.stolen, championsBeaten: this.championsBeaten, bestCombo: this.bestCombo,
       nextSquad: this.nextSquad, nextHeist: this.nextHeist, escapes: [...this.escapes],
@@ -400,8 +507,9 @@ export class Game {
     this.kills = sv.kills; this.stolen = sv.stolen; this.championsBeaten = sv.championsBeaten; this.bestCombo = sv.bestCombo;
     this.nextSquad = sv.nextSquad; this.nextHeist = sv.nextHeist; this.escapes = [...sv.escapes];
     this.nextChampion = CHAMPIONS.filter((c) => c.night - 1 < sv.night).length;
+    this.seasonSeed = sv.seed ?? 1;
     this.castle.clear();
-    for (const [id, cx, cz] of sv.buildings) this.castle.place(cx, cz, id);
+    for (const [id, cx, cz, night] of sv.buildings) this.castle.place(cx, cz, id, night ?? sv.night);
     this.enterBuild();
   }
 
@@ -526,6 +634,7 @@ export class Game {
 
     this.buildGrid();
     this.spawn(dt);
+    this.updateSurprise(dt);
     this.updateHeroes(dt);
     this.updateWeapons(dt);
     this.updateShots(dt);
@@ -1648,10 +1757,12 @@ export class Game {
         const [x, z] = this.castle.center(cx, cz);
         if (Math.hypot(x, z) > CASTLE.buildRadius) continue;
         const hovered = this.hover && this.hover.cx === cx && this.hover.cz === cz;
-        if (!hovered && (this.castle.at(cx, cz) || this.castle.whyNot(cx, cz, 'spikes'))) continue;
+        const breach = this.castle.inBreach(x, z);
+        if (!hovered && !breach && (this.castle.at(cx, cz) || this.castle.whyNot(cx, cz, 'spikes'))) continue;
         this.tmp.position.set(x, 0.04, z); this.tmp.rotation.set(0, 0, 0); this.tmp.scale.setScalar(1); this.tmp.updateMatrix();
         m.setMatrixAt(n, this.tmp.matrix);
-        m.setColorAt(n, hovered ? col.setHex(this.hover?.ok ? 0x3ee07a : 0xff3d5a) : col.setHex(0xffffff));
+        // Breach zones show red so the player can see where heroes will pour in.
+        m.setColorAt(n, hovered ? col.setHex(this.hover?.ok ? 0x3ee07a : 0xff3d5a) : breach ? col.setHex(0xff2040) : col.setHex(0xffffff));
         n++;
       }
     }
@@ -1673,10 +1784,10 @@ export class Game {
    * Edge-of-screen arrows for things the player must not lose track of: the vault when it is off
    * screen, and the nearest thieves carrying gold. Positions are in CSS pixels, clamped to the edge.
    */
-  markers(): { kind: 'vault' | 'thief'; x: number; y: number; angle: number }[] {
+  markers(): { kind: 'vault' | 'thief' | 'breach'; x: number; y: number; angle: number }[] {
     const w = window.innerWidth, h = window.innerHeight, pad = 34;
-    const out: { kind: 'vault' | 'thief'; x: number; y: number; angle: number }[] = [];
-    const place = (kind: 'vault' | 'thief', wx: number, wz: number) => {
+    const out: { kind: 'vault' | 'thief' | 'breach'; x: number; y: number; angle: number }[] = [];
+    const place = (kind: 'vault' | 'thief' | 'breach', wx: number, wz: number) => {
       this.v3.set(wx, 1, wz).project(this.world.camera);
       let sx = (this.v3.x * 0.5 + 0.5) * w, sy = (-this.v3.y * 0.5 + 0.5) * h;
       if (this.v3.z > 1) { sx = w - sx; sy = h - sy; }
@@ -1687,6 +1798,7 @@ export class Game {
       out.push({ kind, x: cx + Math.cos(angle) * t, y: cy + 15 + Math.sin(angle) * t, angle });
     };
     place('vault', 0, 0);
+    if (this.surprise) place('breach', this.surprise.x, this.surprise.z);
     this.heroes
       .filter((hh) => hh.alive && hh.carry > 0)
       .sort((a, b) => Math.hypot(a.x - this.x, a.z - this.z) - Math.hypot(b.x - this.x, b.z - this.z))
@@ -1695,8 +1807,30 @@ export class Game {
     return out;
   }
 
+  private breachLabels: HTMLDivElement[] = [];
+
+  /** Build phase: a "BREACH" tag over each active breach point. */
+  private placeBreachLabels(w: number, hgt: number): void {
+    const show = this.phase === 'build';
+    while (this.breachLabels.length < this.breaches.length) {
+      const el = document.createElement('div');
+      el.className = 'tag breach';
+      el.textContent = '⚠️ BREACH';
+      this.labelLayer.appendChild(el);
+      this.breachLabels.push(el);
+    }
+    this.breachLabels.forEach((el, i) => {
+      const g = this.gates[i];
+      el.hidden = !show || !g;
+      if (!g || !show) return;
+      this.v3.set(g.x, 3.2, g.z).project(this.world.camera);
+      el.style.transform = `translate(${(this.v3.x * 0.5 + 0.5) * w}px, ${(-this.v3.y * 0.5 + 0.5) * hgt}px) translate(-50%, -100%)`;
+    });
+  }
+
   private placeLabels(): void {
     const w = window.innerWidth, hgt = window.innerHeight;
+    this.placeBreachLabels(w, hgt);
     for (const h of this.heroes) {
       if (!h.label || !h.alive) continue;
       this.v3.set(h.x, 2.2 * h.def.scale + 0.3, h.z).project(this.world.camera);

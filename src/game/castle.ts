@@ -3,7 +3,8 @@ import { CASTLE, type BuildingId } from './config';
 // The castle grid: what is built where, which cells block walking, and flow fields that tell every hero
 // the shortest walkable way to the vault, to the nearest gate, or to the boss.
 
-export interface Building { id: BuildingId; cx: number; cz: number; cd: number; bounce: number }
+/** `night` is when it was placed: buildings from earlier nights refund less when sold. */
+export interface Building { id: BuildingId; cx: number; cz: number; cd: number; bounce: number; night: number; hp: number; maxHp: number; jammed: number }
 
 const N = CASTLE.half * 2;
 const INF = 1e9;
@@ -19,8 +20,26 @@ export class Castle {
   private toBoss = new Float32Array(N * N);
   private bossCell = -1;
 
-  constructor(private gates: { x: number; z: number }[]) {
+  /** Tonight's active breaches: where heroes enter and thieves leave. */
+  private gates: { x: number; z: number }[] = [];
+
+  /**
+   * `all` is every possible breach point. Walls may never cut any of them off from the vault,
+   * because any of them could open on a later night.
+   */
+  constructor(private all: { x: number; z: number }[]) {
+    this.gates = all.slice(0, 4);
     this.rebuild();
+  }
+
+  setActive(gates: { x: number; z: number }[]): void {
+    this.gates = gates;
+    this.rebuild();
+  }
+
+  /** Is this point inside an active breach's no-build zone? */
+  inBreach(x: number, z: number): boolean {
+    return this.gates.some((g) => Math.hypot(g.x - x, g.z - z) < CASTLE.breachClear);
   }
 
   // ---------- Coordinates ----------
@@ -59,13 +78,13 @@ export class Castle {
     const [x, z] = this.center(cx, cz);
     if (Math.hypot(x, z) > CASTLE.buildRadius) return 'Outside your castle';
     if (Math.hypot(x, z) < CASTLE.vaultClear) return 'Too close to the vault';
-    if (this.gates.some((g) => Math.hypot(g.x - x, g.z - z) < CASTLE.gateClear)) return 'Keep the gates open';
+    if (this.inBreach(x, z)) return 'Heroes break in here';
     if (id === 'wall' && !this.stillOpen(cx, cz)) return 'Heroes need a way in!';
     return null;
   }
 
-  place(cx: number, cz: number, id: BuildingId): Building {
-    const b: Building = { id, cx, cz, cd: 0, bounce: 0 };
+  place(cx: number, cz: number, id: BuildingId, night = 0, maxHp = 1): Building {
+    const b: Building = { id, cx, cz, cd: 0, bounce: 0, night, hp: maxHp, maxHp, jammed: 0 };
     this.buildings.push(b);
     this.byCell.set(this.idx(cx, cz), b);
     this.rebuild();
@@ -91,7 +110,7 @@ export class Castle {
     const dist = new Float32Array(N * N);
     this.flood(dist, [this.vaultCell()]);
     this.blocked[i] = 0;
-    return this.gates.every((g) => {
+    return this.all.every((g) => {
       const [gx, gz] = this.cellOf(g.x, g.z);
       return !this.inside(gx, gz) || dist[this.idx(gx, gz)] < INF;
     });
