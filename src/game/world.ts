@@ -53,6 +53,7 @@ export class World {
   bottomInset = 0;
   /** Small screens (phones either way round) get a closer build view that pans, instead of the whole castle. */
   compact = false;
+  private portrait = false;
   private appliedInset = -1;
 
   constructor(canvas: HTMLCanvasElement, readonly style: StyleId) {
@@ -249,8 +250,10 @@ export class World {
     this.renderer.setSize(w, h, false);
     this.composer?.setSize(w, h);
     this.camera.aspect = w / h;
-    // Portrait phones see less width, so pull the camera back to keep the crowd visible.
-    this.zoom = w < h ? 1.45 : 1;
+    // Phones see less of the arena, so the camera pulls back: portrait most (it has the least width),
+    // phones held sideways a little (short height). Owner feedback: 1.45 on portrait felt too close.
+    this.zoom = w < h ? 1.8 : h < 600 ? 1.3 : 1;
+    this.portrait = w < h;
     this.compact = w < h || h < 600;
     this.appliedInset = -1;
     this.camera.updateProjectionMatrix();
@@ -269,7 +272,7 @@ export class World {
     if (fog) fog.far = this.overview ? 400 : this.baseFogFar;
     if (this.overview) {
       // Landscape screens see the whole castle; portrait phones get a closer view they can pan.
-      const portrait = this.zoom > 1;
+      const portrait = this.portrait;
       const fx = this.compact ? this.focus.x : 0, fz = this.compact ? this.focus.z : 0;
       px = fx; pz = fz;
       this.camera.position.set(fx, portrait ? 48 : 38, fz + (portrait ? 34 : 30));

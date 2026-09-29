@@ -271,3 +271,8 @@ body[data-phase="build"] #build-top { padding-right: 52px; }
 .marker.carrier b { font-size: 42px; animation: pointer .45s ease-in-out infinite alternate; filter: drop-shadow(0 2px 0 #2a1f3d); }
 @keyframes pointer { from { transform: translateY(-6px); } to { transform: translateY(4px); } }
 @media (prefers-reduced-motion: reduce) { .marker.carrier b { animation: none; } }
+@media (max-height: 500px) {
+  #vault-tip .tip-art { font-size: 36px; }
+  #vault-tip ul { display: grid; grid-template-columns: 1fr 1fr; max-width: 720px; gap: 6px; }
+  #vault-tip li { font-size: 14px; padding: 5px 10px; }
+}
