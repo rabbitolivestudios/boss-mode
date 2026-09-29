@@ -12,9 +12,9 @@ const FIT = 0.86;
 
 export type CastId =
   | 'noob' | 'noob2' | 'archer' | 'archer2' | 'knight' | 'knight2' | 'sweat' | 'sweat2' | 'healer' | 'healer2'
-  | 'rogue' | 'rogue2' | 'shieldbearer' | 'glider' | 'nerd' | 'sapper' | 'goblin' | 'captain' | 'tryhard' | 'queen' | 'clutch' | 'medic' | 'loot' | 'chosen';
+  | 'rogue' | 'rogue2' | 'shieldbearer' | 'glider' | 'nerd' | 'sapper' | 'bomber' | 'goblin' | 'captain' | 'tryhard' | 'queen' | 'clutch' | 'medic' | 'loot' | 'chosen';
 
-export const CAST: CastId[] = ['noob', 'noob2', 'archer', 'archer2', 'knight', 'knight2', 'sweat', 'sweat2', 'healer', 'healer2', 'rogue', 'rogue2', 'shieldbearer', 'glider', 'nerd', 'sapper', 'goblin', 'captain', 'tryhard', 'queen', 'clutch', 'medic', 'loot', 'chosen'];
+export const CAST: CastId[] = ['noob', 'noob2', 'archer', 'archer2', 'knight', 'knight2', 'sweat', 'sweat2', 'healer', 'healer2', 'rogue', 'rogue2', 'shieldbearer', 'glider', 'nerd', 'sapper', 'bomber', 'goblin', 'captain', 'tryhard', 'queen', 'clutch', 'medic', 'loot', 'chosen'];
 
 /** Which drawing a hero uses: two outfits per class for crowd variety, and a unique look per champion. */
 export function castFor(kind: HeroKind | 'goblin', variant: number, championIndex = 0): CastId {
@@ -614,6 +614,23 @@ const lootLook: Look = {
   },
 };
 
+/** Throws bombs from a distance: flight goggles, and a lit bomb in hand. */
+const bomberLook: Look = {
+  ...noobLook('#ff9a1a', '#3b3f58'),
+  skin: '#ffcfa6',
+  hat: (g) => {
+    blob(g, '#8a5a2b', () => { g.moveTo(40, 30); g.quadraticCurveTo(40, 6, 64, 6); g.quadraticCurveTo(88, 6, 90, 28); g.lineTo(40, 30); g.closePath(); });
+    for (const x of [58, 78]) { blob(g, '#9ff3ff', () => g.arc(x, 24, 7, 0, Math.PI * 2), 2.5); shine(g, x - 2, 22, 3, 2); }
+    line(g, 3, INK, [[65, 24], [71, 24]]);
+  },
+  hand: (g) => {
+    blob(g, '#2a2a3a', () => g.arc(0, 30, 11, 0, Math.PI * 2), 2.5);
+    shine(g, -4, 26, 4, 3);
+    line(g, 3, '#8a5a2b', [[5, 20], [10, 12]]);
+    blob(g, '#ffd23a', () => g.arc(11, 10, 3.5, 0, Math.PI * 2), 1.5);
+  },
+};
+
 const LOOKS: Record<CastId, Look> = {
   noob: noobLook('#2f7dff', '#3fb24f'),
   noob2: noobLook('#ff4d4d', '#2f5dff'),
@@ -631,6 +648,7 @@ const LOOKS: Record<CastId, Look> = {
   glider: gliderLook,
   nerd: nerdLook,
   sapper: sapperLook,
+  bomber: bomberLook,
   goblin: goblinLook,
   captain: captainLook,
   tryhard: tryhardLook,

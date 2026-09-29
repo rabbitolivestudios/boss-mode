@@ -5,7 +5,7 @@ import { ART_SCALE, INK, blob, canvas, cutout, dot, line, pack, shine, type G } 
 const CELL = 192 * ART_SCALE;
 const S = CELL / 128;
 
-export const SPELLS = ['fire0', 'fire1', 'boom', 'bolt0', 'bolt1', 'bolt2', 'cloud', 'twister0', 'twister1', 'boomerang', 'ice', 'flake'] as const;
+export const SPELLS = ['fire0', 'fire1', 'boom', 'bolt0', 'bolt1', 'bolt2', 'cloud', 'twister0', 'twister1', 'boomerang', 'ice', 'flake', 'bomb', 'plane'] as const;
 export type SpellId = typeof SPELLS[number];
 
 /** A comet of fire pointing right: red tail, orange body, yellow core. `f` flickers the tail tips. */
@@ -130,6 +130,26 @@ function flake(g: G): void {
   dot(g, 64, 64, 8, '#ffffff');
 }
 
+/** A round cartoon bomb with a lit fuse. */
+function bomb(g: G): void {
+  blob(g, '#2a2a3a', () => g.arc(60, 72, 40, 0, Math.PI * 2), 4);
+  shine(g, 44, 56, 12, 8, -0.6, 0.4);
+  blob(g, '#4b4b5e', () => g.roundRect(70, 22, 18, 16, 3), 3);
+  line(g, 4, '#8a5a2b', [[80, 22], [90, 10], [100, 8]]);
+  for (const [x, y, r, c] of [[104, 6, 9, '#ff8a1a'], [104, 6, 5, '#ffe24a']] as const) blob(g, c, () => g.arc(x, y, r, 0, Math.PI * 2), 0);
+}
+
+/** A little propeller bomber plane flying right, seen from the side. */
+function plane(g: G): void {
+  blob(g, '#9aa4b1', () => { g.moveTo(10, 60); g.quadraticCurveTo(20, 44, 60, 46); g.lineTo(104, 50); g.quadraticCurveTo(122, 58, 104, 68); g.lineTo(60, 74); g.quadraticCurveTo(20, 76, 10, 60); g.closePath(); }, 4);
+  blob(g, '#6c7a8f', () => { g.moveTo(14, 58); g.lineTo(4, 34); g.lineTo(24, 36); g.lineTo(34, 54); g.closePath(); }, 3);
+  blob(g, '#6c7a8f', () => { g.moveTo(50, 62); g.lineTo(78, 62); g.lineTo(64, 92); g.lineTo(52, 92); g.closePath(); }, 3);
+  blob(g, '#9ff3ff', () => g.ellipse(84, 52, 10, 6, 0, 0, Math.PI * 2), 2.5);
+  blob(g, '#ff3d5a', () => g.arc(40, 60, 6, 0, Math.PI * 2), 2);
+  line(g, 4, INK, [[118, 44], [118, 76]]);
+  shine(g, 60, 52, 18, 3, 0, 0.4);
+}
+
 function drawSpell(id: SpellId): HTMLCanvasElement {
   const [c, g] = canvas(CELL, CELL);
   g.scale(S, S);
@@ -146,6 +166,8 @@ function drawSpell(id: SpellId): HTMLCanvasElement {
     case 'boomerang': boomerang(g); break;
     case 'ice': ice(g); break;
     case 'flake': flake(g); break;
+    case 'bomb': bomb(g); break;
+    case 'plane': plane(g); break;
   }
   return cutout(c, 5 * S);
 }

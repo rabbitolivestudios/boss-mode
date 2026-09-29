@@ -108,6 +108,8 @@ export interface Difficulty {
    * 0 gold, so on harder tiers thieves sprint away with the loot. Chill keeps them weighed down.
    */
   getaway: number;
+  /** Anti-camping pressure: 0 turns off airstrikes and camper barrages and halves bombers (Chill, for kids); 1 is full. */
+  pressure: number;
 }
 
 /**
@@ -116,17 +118,17 @@ export interface Difficulty {
  * Chill is the original Normal, Normal is the original Heroic.
  */
 export const DIFFICULTIES: Difficulty[] = [
-  { id: 'chill', name: 'Chill', hp: 1, spawn: 1, damage: 1, loot: 1, getaway: 0.85 },
-  { id: 'normal', name: 'Normal', hp: 1.5, spawn: 1.25, damage: 1.2, loot: 1.3, getaway: 1 },
-  { id: 'heroic', name: 'Heroic', hp: 2.5, spawn: 1.55, damage: 1.5, loot: 1.6, getaway: 1.15 },
-  { id: 'legendary', name: 'Legendary', hp: 3.3, spawn: 1.8, damage: 1.7, loot: 2, getaway: 1.25 },
+  { id: 'chill', name: 'Chill', hp: 1, spawn: 1, damage: 1, loot: 1, getaway: 0.85, pressure: 0 },
+  { id: 'normal', name: 'Normal', hp: 1.5, spawn: 1.25, damage: 1.2, loot: 1.3, getaway: 1, pressure: 1 },
+  { id: 'heroic', name: 'Heroic', hp: 2.5, spawn: 1.55, damage: 1.5, loot: 1.6, getaway: 1.15, pressure: 1 },
+  { id: 'legendary', name: 'Legendary', hp: 3.3, spawn: 1.8, damage: 1.7, loot: 2, getaway: 1.25, pressure: 1 },
 ];
 
 /** Tiers open without winning anything, and the tier picked by default. */
 export const OPEN_TIERS = 1;
 export const DEFAULT_TIER = 1;
 
-export type HeroKind = 'noob' | 'archer' | 'knight' | 'sweat' | 'healer' | 'rogue' | 'shieldbearer' | 'glider' | 'nerd' | 'sapper' | 'champion';
+export type HeroKind = 'noob' | 'archer' | 'knight' | 'sweat' | 'healer' | 'rogue' | 'shieldbearer' | 'glider' | 'nerd' | 'sapper' | 'bomber' | 'champion';
 
 export interface HeroDef {
   label: string;
@@ -168,6 +170,8 @@ export const HEROES: Record<HeroKind, HeroDef> = {
   glider: { label: 'Glider', hp: 14, speed: 3.9, dps: 6, radius: 0.45, scale: 1, xp: 3, body: 0x29a3ff, head: 0xffcfa6, gear: 0xffffff, flying: true },
   nerd: { label: 'Trap Nerd', hp: 16, speed: 3.3, dps: 4, radius: 0.45, scale: 1, xp: 3, body: 0xffa31a, head: 0xffcfa6, gear: 0x9aa4b1, saboteur: 'jam' },
   sapper: { label: 'Sapper', hp: 12, speed: 3.7, dps: 5, radius: 0.45, scale: 1, xp: 3, body: 0x5a5a6a, head: 0xffcfa6, gear: 0x2a2a2a, saboteur: 'sap' },
+  // Bombers keep their distance and lob a bomb at where the boss stands every `cooldown` seconds (see BOMBERS).
+  bomber: { label: 'Bomber', hp: 14, speed: 3.0, dps: 4, radius: 0.45, scale: 1, xp: 3, body: 0xff9a1a, head: 0xffcfa6, gear: 0x2a2a2a, ranged: { range: 12, cooldown: 3.4, speed: 0, damage: 9 } },
   rogue: { label: 'Rogue', hp: 10, speed: 4.1, dps: 6, radius: 0.42, scale: 0.95, xp: 2, body: 0x5a3a8a, head: 0x2a1f3d, gear: 0xdfe6ee },
   champion: {
     label: 'Champion', hp: 450, speed: 3.4, dps: 16, radius: 1.1, scale: 2.4, xp: 0, body: 0xffc21a, head: 0xffe7b0, gear: 0xff5a1a,
@@ -387,6 +391,31 @@ export const BOOMERANG = { speed: 15, out: 0.55, back: 18, life: 3 };
 
 /** Storm Call chains from its target to nearby heroes at these levels, within this range, for this share of damage. */
 export const CHAIN = { fromLevel: 3, extraAtMax: 1, range: 5, share: 0.6 };
+
+/**
+ * Pressure on a boss that stands still. Live data: from night 3 on, winning players finished nights at
+ * 94-100% health with almost no contact damage, sitting on the vault while a maxed Loot Magnet (picked 5-7
+ * times in every win) brought the gems in. Each of these lands where the boss is standing, after a warning
+ * circle, so a boss that keeps moving is never hit.
+ */
+export const BOMBERS = {
+  /** From this night (0-based), bombers join the wave mix with weight base + perNight per later night. */
+  fromNight: 2, weight: 5, perNight: 2,
+  /** Warning before a bomb lands, and its blast radius. Range, rate and damage are the Bomber's `ranged` in HEROES. */
+  warn: 1.1, radius: 1.7,
+};
+export const AIRSTRIKE = {
+  /** From this night (0-based), a plane bombs a line through the boss every `every` seconds (plus up to `jitter`). */
+  fromNight: 3, first: 25, every: 45, jitter: 15,
+  /** Bombs along the line, spacing, warning before the first, delay between bombs, radius, damage, and damage to buildings. */
+  bombs: 8, spacing: 2.2, warn: 1.6, stagger: 0.12, radius: 2, damage: 14, buildingDamage: 25,
+};
+export const CAMPER = {
+  /** From this night (0-based): staying within `radius` for `seconds` calls in a barrage; it repeats every `repeat` s. */
+  fromNight: 1, radius: 3, seconds: 10, repeat: 6,
+  /** Bombs in the barrage, spread around the boss, warning, blast radius and damage. */
+  bombs: 6, spread: 2.5, warn: 1.2, blast: 1.8, damage: 10,
+};
 
 export const PHYSICS = {
   /** Knockback speed above which a hero leaves the ground and becomes a projectile. */

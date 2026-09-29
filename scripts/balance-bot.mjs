@@ -1,7 +1,8 @@
 // Season bot for balance testing, driving the real game in a headless browser.
 // Start the dev server first (npx vite --port 5175), then: node scripts/balance-bot.mjs BOSS TIER MODE RESERVE PICKS TAG [MAXMIN] [MOVE]
 //   BOSS dragon|slime|bonelord, TIER 0-3 (Chill..Legendary), MODE mortal|immortal (immortal locks health to measure theft only),
-//   RESERVE coins kept in the vault when building, PICKS smart|random, MOVE kite|thin. Prints one JSON line per season.
+//   RESERVE coins kept in the vault when building, PICKS smart|random, MOVE kite|thin|nochase|camp|late
+//   (kite and late dodge warning circles; nochase ignores thieves; camp sits on the vault; late camps from night 4). Prints one JSON line per season.
 // Drawing is switched off (the page frame loop never runs); the bot steps the simulation itself, so a season takes seconds.
 import { chromium } from 'playwright';
 const [,, BOSS = 'dragon', TIER = '1', MODE = 'mortal', RESERVE = '25', PICKS = 'smart', TAG = 'run', MAXMIN = '25', MOVE = 'kite'] = process.argv;
@@ -18,7 +19,7 @@ await page.evaluate(async ({ boss, tier, mode, reserve, picks, move }) => {
   const g = window.game;
   g.start(boss, c.DIFFICULTIES[tier]);
   g.hooks.banner = () => {}; g.hooks.killfeed = () => {};
-  window.__cfg = { mode, reserve, picks, move, W: c.WEAPONS };
+  window.__cfg = { mode, reserve, picks, move, W: c.WEAPONS }; window.__nochase = move === 'nochase' || move === 'camp'; window.__cfg.dodge = move === 'kite' || move === 'late';
   window.__nights = []; window.__grab = new WeakSet(); window.__grabs = 0; window.__minHp = 1;
   const dawn = g.hooks.dawn;
   g.hooks.dawn = (r) => {
@@ -27,7 +28,7 @@ await page.evaluate(async ({ boss, tier, mode, reserve, picks, move }) => {
     dawn(r);
   };
   const end = g.hooks.end;
-  g.hooks.end = (s) => { window.__end = { win: s.win, reason: s.reason, night: s.night + 1, time: Math.round(s.time), kills: s.kills, level: s.level, treasure: s.treasure, stolen: s.stolen }; end(s); };
+  g.hooks.end = (s) => { window.__end = { nightTime: Math.round(g.nightTime), taken: Object.fromEntries(Object.entries(g.taken).map(([k, v]) => [k, Math.round(v)])), heroes: g.heroes.length, kinds: Object.entries(g.heroes.reduce((m, h) => (m[h.kind] = (m[h.kind] ?? 0) + 1, m), {})).sort((a, b) => b[1] - a[1]).slice(0, 5), win: s.win, reason: s.reason, night: s.night + 1, time: Math.round(s.time), kills: s.kills, level: s.level, treasure: s.treasure, stolen: s.stolen }; end(s); };
 }, { boss: BOSS, tier: +TIER, mode: MODE, reserve: +RESERVE, picks: PICKS, move: MOVE });
 
 const t0 = Date.now();
@@ -70,9 +71,9 @@ while (Date.now() - t0 < +MAXMIN * 60000) {
       for (const h of g.heroes) if (h.carry > 0 && !window.__grab.has(h)) { window.__grab.add(h); window.__grabs++; }
       // Move: chase the nearest thief with gold; otherwise go where the crowd is thinnest, staying near the vault.
       let mx = 0, mz = 0;
-      const thief = g.heroes.filter((h) => h.alive && h.carry > 0).sort((a, b) => Math.hypot(a.x - g.x, a.z - g.z) - Math.hypot(b.x - g.x, b.z - g.z))[0];
+      const thief = window.__nochase ? null : g.heroes.filter((h) => h.alive && h.carry > 0).sort((a, b) => Math.hypot(a.x - g.x, a.z - g.z) - Math.hypot(b.x - g.x, b.z - g.z))[0];
       if (thief) { mx = thief.x - g.x; mz = thief.z - g.z; }
-      else if (C.move === 'kite') {
+      else if (C.move === 'kite' || C.move === 'nochase' || C.move === 'late') {
         // Push away from nearby heroes (closer ones push harder), orbit the vault, and drift back if too far.
         for (const h of g.heroes) {
           if (!h.alive || h.air) continue;
@@ -96,6 +97,9 @@ while (Date.now() - t0 < +MAXMIN * 60000) {
           if (cost < best) { best = cost; mx = Math.cos(a); mz = Math.sin(a); }
         }
       }
+      // A player steps out of warning circles (bombs, airstrikes, arrow rain) that are about to land on them.
+      if (C.dodge) { let bx = 0, bz = 0; for (const v of g.volleys) { const dx = g.x - v.x, dz = g.z - v.z, d = Math.hypot(dx, dz); if (d < v.radius + g.radius) { bx += dx / (d || 0.1); bz += dz / (d || 0.1); } } if (bx || bz) { mx = bx; mz = bz; } }
+      if (C.move === 'camp' || (C.move === 'late' && g.night >= 3)) { const vd = Math.hypot(g.x, g.z); mx = vd > 1.5 ? -g.x : 0; mz = vd > 1.5 ? -g.z : 0; }
       const l = Math.hypot(mx, mz) || 1;
       if (g.rage >= 100) g.roar();
       if (C.mode === 'immortal') g.hp = g.maxHp;

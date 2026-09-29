@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import {
-  BOOMERANG, BOSSES, BUILDINGS, CASTLE, CHAIN, FROST, TORNADO, CHAMPION_POWERS, CHAMPIONS, COUNTERS, DEFAULT_TIER, SABOTAGE, DIFFICULTIES, HEROES, LIMIT_BREAKS, MAX_LEVEL, MINION, NIGHT_TOUGHNESS, NIGHTS, PASSIVES, PHYSICS, RUN, STARS, TRAPS, TREASURE, WAVES, WEAPONS, XP, xpToNext,
+  BOOMERANG, BOSSES, BUILDINGS, CASTLE, CHAIN, FROST, TORNADO, AIRSTRIKE, BOMBERS, CAMPER, CHAMPION_POWERS, CHAMPIONS, COUNTERS, DEFAULT_TIER, SABOTAGE, DIFFICULTIES, HEROES, LIMIT_BREAKS, MAX_LEVEL, MINION, NIGHT_TOUGHNESS, NIGHTS, PASSIVES, PHYSICS, RUN, STARS, TRAPS, TREASURE, WAVES, WEAPONS, XP, xpToNext,
   type BossId, type BuildingId, type ChampionPower, type Difficulty, type HeroDef, type HeroKind, type PassiveId, type WeaponId,
 } from './config';
 import { Fx } from './fx';
@@ -41,8 +41,11 @@ export interface Hero {
 }
 /** A fake xX_Clutch_Xx: looks and moves like the real one, but falls in a few hits. */
 const DECOY: HeroDef = { ...HEROES.champion, dps: 8, ranged: undefined, dash: { cooldown: 4, duration: 0.4, mult: 2.5 } };
-/** A Quickscope Queen arrow volley: a red circle that hurts the boss when the arrows land. */
-interface Volley { x: number; z: number; t: number; ring: number }
+/**
+ * Something landing where the boss stood: Quickscope Queen arrows, a Bomber's bomb, an airstrike or a camper
+ * barrage. A warning circle shows until it lands; the boss is only hurt if still inside.
+ */
+interface Volley { x: number; z: number; t: number; ring: number; radius: number; damage: number; kind: 'arrow' | 'bomb' | 'air' }
 /** Gold knocked out of a thief's sack: it bounces, then flies home to the vault. */
 interface Spill { x: number; z: number; y: number; vx: number; vz: number; vy: number; t: number; sx: number; sz: number }
 export interface Escape { tag: string; gold: number; kind: HeroKind }
@@ -58,7 +61,7 @@ interface Shot { x: number; z: number; vx: number; vz: number; life: number; dmg
 interface Gem { x: number; z: number; value: number; tier: number; pulled: boolean; spin: number; snack?: boolean; vacuum?: boolean }
 interface Lava { x: number; z: number; r: number; life: number; tick: number }
 /** A spell piece drawn as a paper cutout for a moment: bolts, storm clouds, explosions, snowflakes. */
-interface Flash { cell: SpellId; x: number; y: number; z: number; vx: number; vz: number; w: number; h: number; life: number; max: number; roll: number; face: number }
+interface Flash { cell: SpellId; x: number; y: number; z: number; vx: number; vz: number; w: number; h: number; life: number; max: number; roll: number; face: number; drag: boolean }
 interface Twister { x: number; z: number; vx: number; vz: number; life: number; tick: number; dmg: number; seed: number }
 interface Boomerang { x: number; z: number; vx: number; vz: number; t: number; back: boolean; dmg: number; hit: Set<Hero> }
 interface Minion { x: number; z: number; hp: number; life: number; hitCd: number; face: number; phase: number; turn?: number; actT?: number; seed?: number }
@@ -173,6 +176,11 @@ export class Game {
   private bossWarned = false;
   private bossReturn: { at: number; hp: number } | null = null;
   private chestReward = { gold: 0, levels: 0 };
+  /** Night time of the next airstrike; where the boss has been standing and for how long; season warnings. */
+  private nextAir = 0;
+  private camp = { x: 0, z: 0, t: 0 };
+  private warnedBomb = false;
+  private warnedCamp = false;
   private twisters: Twister[] = [];
   private booms: Boomerang[] = [];
   private warnedThief = false;
@@ -470,6 +478,7 @@ export class Game {
     this.phase = 'raid';
     this.running = true;
     this.bossBeaten = false; this.bossWarned = false; this.bossReturn = null;
+    this.nextAir = AIRSTRIKE.first; this.camp = { x: this.x, z: this.z, t: 0 };
     this.hover = null;
     this.nightTime = 0; this.nightKills = 0; this.nightStolen = 0; this.nightRecovered = 0; this.warnedLow = false; this.nightGrabs = 0; this.nightEscapes = 0;
     this.nightDamage = 0; this.nightBuildingKills.clear();
@@ -617,7 +626,7 @@ export class Game {
     this.chest = null; this.chestMesh.visible = false;
     this.weapons.clear(); this.passives.clear(); this.limits = {}; this.allPicksAt = null;
     this.x = 4.5; this.z = 0.5; this.time = 0; this.kills = 0; this.championsBeaten = 0;
-    this.treasure = TREASURE.start; this.stolen = 0; this.escapes = []; this.spills = []; this.warnedThief = false; this.nextHeist = TREASURE.heistFirst;
+    this.treasure = TREASURE.start; this.stolen = 0; this.escapes = []; this.spills = []; this.warnedThief = false; this.warnedBomb = false; this.warnedCamp = false; this.nextHeist = TREASURE.heistFirst;
     this.level = 1; this.xp = 0; this.xpNeed = xpToNext(1); this.rage = 0; this.frenzy = 0; this.hurt = 0;
     this.pendingLevels = 0; this.spawnAcc = 0; this.nextSquad = RUN.squadEvery; this.nextChampion = 0;
     this.paused = false; this.choosing = false; this.labels = 0;
@@ -742,6 +751,7 @@ export class Game {
 
     this.buildGrid();
     this.spawn(dt);
+    this.updatePressure(dt);
     this.updateSurprise(dt);
     this.updateHeroes(dt);
     this.updateWeapons(dt);
@@ -944,6 +954,7 @@ export class Game {
     const entries = Object.entries(band.mix) as [HeroKind, number][];
     for (const c of COUNTERS) if (this.night >= c.from) entries.push([c.kind, c.weight * (this.counterBoost.get(c.kind) ?? 1)]);
     if (this.night === 0) for (const e of entries) if (e[0] === 'rogue') e[1] *= TREASURE.warmupLoot;
+    if (this.night >= BOMBERS.fromNight) entries.push(['bomber', (BOMBERS.weight + BOMBERS.perNight * (this.night - BOMBERS.fromNight)) * (this.difficulty.pressure > 0 ? 1 : 0.5)]);
     let roll = Math.random() * entries.reduce((s, [, n]) => s + n, 0);
     for (const [k, n] of entries) { roll -= n; if (roll <= 0) return k; }
     return 'noob';
@@ -1066,7 +1077,11 @@ export class Game {
         h.cd -= dt;
         if (h.cd <= 0 && d < def.ranged.range) {
           h.cd = def.ranged.cooldown * (0.8 + Math.random() * 0.4);
-          if (h.kind === 'champion' && Math.random() < 0.5) {
+          if (h.kind === 'bomber') {
+            // A lobbed bomb aimed where the boss stands now: moving dodges it.
+            this.volleys.push({ x: this.x, z: this.z, t: BOMBERS.warn, ring: 0, radius: BOMBERS.radius, damage: def.ranged.damage, kind: 'bomb' });
+            if (!this.warnedBomb) { this.warnedBomb = true; this.hooks.banner('💣 BOMBERS!', 'Orange circles are bombs. Keep moving!'); }
+          } else if (h.kind === 'champion' && Math.random() < 0.5) {
             for (let i = 0; i < 12; i++) { const a = (i / 12) * Math.PI * 2; this.enemyShot(h, Math.cos(a), Math.sin(a), def.ranged.damage * dmgScale, def.ranged.speed * 0.7); }
           } else this.enemyShot(h, dx, dz, def.ranged.damage * dmgScale, def.ranged.speed);
           this.act(h, h.kind === 'champion' ? 'swing' : 'shoot', 0.45);
@@ -1307,7 +1322,7 @@ export class Game {
       if (h.power === 'volley') h.powerT = P.volley.every; else h.power2T = P.volley.every + 1;
       for (let i = 0; i < P.volley.count; i++) {
         const a = Math.random() * Math.PI * 2, d = i === 0 ? 0 : 2 + Math.random() * 4;
-        this.volleys.push({ x: this.x + Math.cos(a) * d, z: this.z + Math.sin(a) * d, t: P.volley.warn, ring: 0 });
+        this.volleys.push({ x: this.x + Math.cos(a) * d, z: this.z + Math.sin(a) * d, t: P.volley.warn, ring: 0, radius: P.volley.radius, damage: P.volley.damage, kind: 'arrow' });
       }
       this.act(h, 'shoot', 0.45);
     }
@@ -1350,25 +1365,67 @@ export class Game {
     }
   }
 
-  /** Arrow volleys: a red circle warns, then the arrows land and hurt the boss if it is still inside. */
+  /** Volleys, bombs and airstrikes: a warning circle, then the hit lands and hurts the boss if it is still inside. */
   private updateVolleys(dt: number, dmgScale: number): void {
-    const V = CHAMPION_POWERS.volley;
     for (let i = this.volleys.length - 1; i >= 0; i--) {
       const v = this.volleys[i];
       v.t -= dt; v.ring -= dt;
-      if (v.ring <= 0 && v.t > 0) { v.ring = 0.25; this.fx.ring(v.x, v.z, V.radius, 0xff3d5a, 0.25); }
+      if (v.ring <= 0 && v.t > 0) { v.ring = 0.25; this.fx.ring(v.x, v.z, v.radius, v.kind === 'bomb' ? 0xff8a1a : 0xff3d5a, 0.25); }
       if (v.t > 0) continue;
       this.volleys.splice(i, 1);
-      this.fx.burst(v.x, 0.4, v.z, 0x8a5a2b, 12, 6, 0.18);
-      this.flash('boom', v.x, 0.2, v.z, 1.4, 0.15);
-      if (Math.hypot(this.x - v.x, this.z - v.z) < V.radius + this.radius * 0.5) {
-        const dmg = V.damage * dmgScale;
+      if (v.kind === 'arrow') { this.fx.burst(v.x, 0.4, v.z, 0x8a5a2b, 12, 6, 0.18); this.flash('boom', v.x, 0.2, v.z, 1.4, 0.15); }
+      else { this.fx.burst(v.x, 0.5, v.z, 0x2a2a3a, 14, 8, 0.25); this.flash('boom', v.x, 0.2, v.z, v.radius * 1.4, 0.2); sfx.stomp(); this.world.addShake(0.08); }
+      if (v.kind === 'air') {
+        // Airstrikes flatten buildings in the blast too.
+        for (const b of [...this.castle.buildings]) {
+          const [bx, bz] = this.castle.center(b.cx, b.cz);
+          if (Math.hypot(bx - v.x, bz - v.z) > v.radius + 0.5) continue;
+          b.hp -= AIRSTRIKE.buildingDamage;
+          if (b.hp <= 0) { this.castle.remove(b); this.fx.burst(bx, 0.8, bz, 0xc08a4c, 16, 7, 0.24); }
+        }
+      }
+      if (Math.hypot(this.x - v.x, this.z - v.z) < v.radius + this.radius * 0.5) {
+        const dmg = v.damage * dmgScale;
         this.hurtBoss(dmg);
-        // Counted with contact damage, as champion hits are, so the damage shares still add up.
-        this.taken.champion += dmg;
-        this.taken.contact += dmg;
+        // Queen arrows count with champion hits (inside contact); everything else is ranged damage.
+        if (v.kind === 'arrow') { this.taken.champion += dmg; this.taken.contact += dmg; } else this.taken.arrows += dmg;
       }
     }
+  }
+
+  /**
+   * Pressure on a boss that stands still: airstrikes along a line through it, and a barrage when it has
+   * stayed in one small area too long. A boss that keeps moving is never hit by either.
+   */
+  private updatePressure(dt: number): void {
+    if (this.difficulty.pressure <= 0) return;
+    if (this.night >= AIRSTRIKE.fromNight && this.nightTime >= this.nextAir) {
+      this.nextAir = this.nightTime + AIRSTRIKE.every + Math.random() * AIRSTRIKE.jitter;
+      const a = Math.random() * Math.PI * 2, dx = Math.cos(a), dz = Math.sin(a);
+      const half = ((AIRSTRIKE.bombs - 1) / 2) * AIRSTRIKE.spacing;
+      for (let i = 0; i < AIRSTRIKE.bombs; i++) {
+        const o = -half + i * AIRSTRIKE.spacing;
+        this.volleys.push({ x: this.x + dx * o, z: this.z + dz * o, t: AIRSTRIKE.warn + i * AIRSTRIKE.stagger, ring: 0, radius: AIRSTRIKE.radius, damage: AIRSTRIKE.damage, kind: 'air' });
+      }
+      // The plane crosses the line as the bombs fall.
+      const life = AIRSTRIKE.warn + AIRSTRIKE.bombs * AIRSTRIKE.stagger + 0.8, lead = half + 10;
+      const sx = this.x - dx * lead, sz = this.z - dz * lead;
+      this.flash('plane', sx, 5.5, sz, 4.2, life, (dx * 2 * lead) / life, (dz * 2 * lead) / life, dx < 0 ? -1 : 1, false);
+      sfx.siren();
+      this.hooks.banner('✈️ AIRSTRIKE!', 'Get out of the red circles!');
+    }
+    if (this.night < CAMPER.fromNight) return;
+    if (Math.hypot(this.x - this.camp.x, this.z - this.camp.z) > CAMPER.radius) { this.camp = { x: this.x, z: this.z, t: 0 }; return; }
+    this.camp.t += dt;
+    if (this.camp.t < CAMPER.seconds) return;
+    this.camp.t = CAMPER.seconds - CAMPER.repeat;
+    for (let i = 0; i < CAMPER.bombs; i++) {
+      const a = Math.random() * Math.PI * 2, d = i === 0 ? 0 : Math.random() * CAMPER.spread;
+      this.volleys.push({ x: this.x + Math.cos(a) * d, z: this.z + Math.sin(a) * d, t: CAMPER.warn + i * 0.1, ring: 0, radius: CAMPER.blast, damage: CAMPER.damage, kind: 'bomb' });
+    }
+    const near = this.heroes.filter((h) => h.alive && !h.air && Math.hypot(h.x - this.x, h.z - this.z) < 13);
+    if (near.length) this.chatter.say(pick(near), pick(['camper spotted lol', 'CAMPER!! call it in', 'bro is camping 💀', 'airstrike the camper']), 2.4, true);
+    if (!this.warnedCamp) { this.warnedCamp = true; this.hooks.banner('🎯 CAMPER DETECTED!', 'Stand still too long and they bomb you. Keep moving!'); }
   }
 
   /** Speed of a thief carrying gold: slow on the learning nights, then the tier's own. */
@@ -1767,9 +1824,9 @@ export class Game {
     }
   }
 
-  private flash(cell: SpellId, x: number, y: number, z: number, size: number, life: number, vx = 0, vz = 0, face = 1): void {
+  private flash(cell: SpellId, x: number, y: number, z: number, size: number, life: number, vx = 0, vz = 0, face = 1, drag = true): void {
     if (!this.paper || this.flashes.length > 160) return;
-    this.flashes.push({ cell, x, y, z, vx, vz, w: size, h: size, life, max: life, roll: (Math.random() - 0.5) * 0.3, face });
+    this.flashes.push({ cell, x, y, z, vx, vz, w: size, h: size, life, max: life, roll: drag ? (Math.random() - 0.5) * 0.3 : 0, face, drag });
   }
 
   private updateFlashes(dt: number): void {
@@ -1777,7 +1834,7 @@ export class Game {
       const f = this.flashes[i];
       f.life -= dt;
       f.x += f.vx * dt; f.z += f.vz * dt;
-      f.vx *= 0.9; f.vz *= 0.9;
+      if (f.drag) { f.vx *= 0.9; f.vz *= 0.9; }
       if (f.life <= 0) this.flashes.splice(i, 1);
     }
   }
@@ -2364,6 +2421,8 @@ export class Game {
       sp.push({ x: tw.x, y: 0, z: tw.z, w: 3.3 * grow, h: 4.4 * grow, cell: spellCell(Math.floor(now * 12 + tw.seed) % 2 ? 'twister1' : 'twister0'), face: Math.sin(now * 5 + tw.seed) > 0 ? 1 : -1, roll: Math.sin(now * 7 + tw.seed) * 0.12 });
     }
     for (const b of this.booms) sp.push({ x: b.x, y: 0.5, z: b.z, w: 1.7, h: 1.7, cell: spellCell('boomerang'), face: 1, roll: b.t * 22 });
+    // Bombs drop out of the sky for the last moment before they land.
+    for (const v of this.volleys) if (v.kind !== 'arrow' && v.t < 0.45) sp.push({ x: v.x, y: v.t * 16, z: v.z, w: 1.2, h: 1.2, cell: spellCell('bomb'), face: 1, roll: v.t * 6 });
     for (const h of this.heroes) {
       if (!h.alive || h.iceT <= 0 || h.air) continue;
       const size = this.standeeSize(h);
