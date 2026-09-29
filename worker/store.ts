@@ -36,6 +36,19 @@ export class Store extends DurableObject {
       sql.exec("INSERT OR IGNORE INTO hall(id,player,score,data) SELECT player || ':earlier', player, score, data FROM board");
       sql.exec('INSERT INTO meta(key,value) VALUES (?,?)', 'hall_migrated', Date.now());
     }
+    // One-time restore (owner request): two Normal wins the old one-row-per-player board dropped,
+    // read from the season records, filed under the owner's existing row so they show as theirs.
+    if (!sql.exec('SELECT 1 FROM meta WHERE key=?', 'hall_restore_1').toArray().length) {
+      const owner = sql.exec<{ player: string; data: string }>('SELECT player,data FROM hall WHERE score=?', 26270).toArray()
+        .find((r) => (JSON.parse(r.data) as BoardRow).name === 'Thiago');
+      if (owner) {
+        for (const [n, score, at] of [[1, 16725, 1790707055000], [2, 16796, 1790626708000]] as const) {
+          const row: BoardRow = { name: 'Thiago', score, boss: 'bonelord', tier: 'normal', nights: 7, win: true, at };
+          sql.exec('INSERT OR IGNORE INTO hall(id,player,score,data) VALUES (?,?,?,?)', `${owner.player}:restored-${n}`, owner.player, score, JSON.stringify(row));
+        }
+        sql.exec('INSERT INTO meta(key,value) VALUES (?,?)', 'hall_restore_1', Date.now());
+      }
+    }
     void ctx.blockConcurrencyWhile(async () => {
       if ((await ctx.storage.getAlarm()) === null) await ctx.storage.setAlarm(Date.now() + 86400000);
     });
