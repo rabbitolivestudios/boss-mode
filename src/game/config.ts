@@ -439,7 +439,8 @@ export const PASSIVES: Record<PassiveId, PassiveDef> = {
   haste: { name: 'Hyper Mode', icon: '⏩', blurb: '-8% ability cooldown', per: 0.08 },
   boots: { name: 'Speedy Boots', icon: '👟', blurb: '+10% move speed', per: 0.1 },
   heart: { name: 'Mega Heart', icon: '❤️', blurb: '+25 max HP and heal', per: 25 },
-  magnet: { name: 'Loot Magnet', icon: '🧲', blurb: '+45% pickup range', per: 0.45 },
+  // Was +45% a level: maxed, it pulled gems from about 20 units, the whole screen, so winners stood still (picked 5-7 times in every live win).
+  magnet: { name: 'Loot Magnet', icon: '🧲', blurb: '+25% pickup range', per: 0.25 },
   regen: { name: 'Snack Break', icon: '🍗', blurb: '+0.6 HP per second', per: 0.6 },
 };
 
@@ -467,6 +468,9 @@ export const XP = {
   first: 3,
   perLevel: 5,
   magnetBase: 6,
+  /** Seconds a gem lies on the ground before it fades (it blinks for the last `gemBlink`); gems already flying to the boss stay. */
+  gemLife: 8,
+  gemBlink: 2,
   lateFrom: 25,
   lateSquare: 0.5,
   gemValueColors: [0x3aa8ff, 0x3aff8a, 0xc05bff] as const,

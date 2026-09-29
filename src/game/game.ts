@@ -58,7 +58,7 @@ function approach(v: number, target: number, step: number): number {
 }
 interface Trap { kind: 'spring' | 'saw'; x: number; z: number; life: number; bounce: number }
 interface Shot { x: number; z: number; vx: number; vz: number; life: number; dmg: number; pierce: number; hit: Set<Hero> | null; enemy: boolean; src?: BuildingId }
-interface Gem { x: number; z: number; value: number; tier: number; pulled: boolean; spin: number; snack?: boolean; vacuum?: boolean }
+interface Gem { x: number; z: number; value: number; tier: number; pulled: boolean; spin: number; snack?: boolean; vacuum?: boolean; age?: number }
 interface Lava { x: number; z: number; r: number; life: number; tick: number }
 /** A spell piece drawn as a paper cutout for a moment: bolts, storm clouds, explosions, snowflakes. */
 interface Flash { cell: SpellId; x: number; y: number; z: number; vx: number; vz: number; w: number; h: number; life: number; max: number; roll: number; face: number; drag: boolean }
@@ -2111,6 +2111,11 @@ export class Game {
       const dx = this.x - g.x, dz = this.z - g.z;
       const d = Math.hypot(dx, dz);
       if (d < reach && !g.snack) g.pulled = true;
+      // XP gems left on the ground fade, so levelling up means going where the fighting is.
+      if (!g.pulled && !g.snack) {
+        g.age = (g.age ?? 0) + dt;
+        if (g.age > XP.gemLife) { this.gems[i] = this.gems[this.gems.length - 1]; this.gems.pop(); continue; }
+      }
       if (g.pulled) {
         const sp = 14 + (reach - Math.min(d, reach)) * 4;
         g.x += (dx / (d || 1)) * sp * dt; g.z += (dz / (d || 1)) * sp * dt;
@@ -2131,7 +2136,8 @@ export class Game {
       this.hp = Math.min(this.maxHp, this.hp + this.maxHp * 0.3);
       this.pendingLevels += this.chestReward.levels;
       this.treasure += this.chestReward.gold;
-      this.hooks.banner('TREASURE!', '+25 gold, +2 upgrades and a big snack');
+      const r = this.chestReward;
+      this.hooks.banner('TREASURE!', `+${r.gold} gold${r.levels ? `, +${r.levels} upgrade${r.levels > 1 ? 's' : ''}` : ''} and a big snack`);
     }
   }
 
@@ -2250,6 +2256,8 @@ export class Game {
         this.mSnack.setMatrixAt(sn++, this.tmp.matrix);
         continue;
       }
+      // A gem about to fade blinks, so the player can see it is worth grabbing now.
+      if (!gem.pulled && (gem.age ?? 0) > XP.gemLife - XP.gemBlink && Math.floor(t * 8) % 2) continue;
       this.tmp.position.set(gem.x, 0.45 + Math.sin(t * 4 + gem.spin) * 0.12, gem.z);
       this.tmp.rotation.set(0, t * 3 + gem.spin, 0);
       this.tmp.scale.setScalar(1 + gem.tier * 0.3);
