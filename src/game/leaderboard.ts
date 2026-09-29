@@ -158,11 +158,12 @@ class Leaderboard {
     const local = [...earlier.filter((e) => e !== same), same && same.score > score ? same : entry].sort((a, b) => b.score - a.score).slice(0, TOP);
     keep(LOCAL_KEY, local);
     const list = this.shared ?? local;
-    const rank = list.filter((e) => e.score > score && (this.shared ? !e.me : e.season !== s.season)).length + 1;
+    // Every season is its own row, the player's own earlier seasons included.
+    const rank = list.filter((e) => e.score > score && (this.shared ? true : e.season !== s.season)).length + 1;
     this.last = { score, rank: rank <= TOP ? rank : null };
     this.emit();
     if (this.server) {
-      await this.post({ name: identity.name, score, boss: s.boss, tier: s.difficulty.id, nights: entry.nights, win: s.win });
+      await this.post({ name: identity.name, score, boss: s.boss, tier: s.difficulty.id, nights: entry.nights, win: s.win, season: s.season });
       const shared = this.shared as Entry[] | null;
       const pos = shared ? shared.findIndex((e) => e.me && e.score === score) : -1;
       if (pos >= 0) { this.last = { score, rank: pos + 1 }; this.emit(); }

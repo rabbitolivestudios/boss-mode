@@ -5,6 +5,8 @@ import { checkName } from '../src/game/nameguard';
 import { addToSeason, addToSession, newSession, RETENTION_MS, summarize, type SeasonRecord, type SessionRecord } from './model';
 
 const BOARD_SIZE = 10;
+/** Rows kept in the Hall; far more than are shown, so a new season is compared against everyone. */
+const HALL_KEEP = 500;
 /** The best a real season can plausibly score (7 nights, a full vault, thousands of heroes, Legendary). */
 const MAX_SCORE = 200000;
 
@@ -25,6 +27,15 @@ export class Store extends DurableObject {
     sql.exec('CREATE INDEX IF NOT EXISTS sessions_first ON sessions(first_at)');
     sql.exec('CREATE INDEX IF NOT EXISTS seasons_started ON seasons(started_at)');
     sql.exec('CREATE INDEX IF NOT EXISTS board_score ON board(score)');
+    // The Hall lists seasons, not players: one row per player and season, so every good run can show.
+    // The old one-row-per-player board is copied in once, each row standing as that player's earlier season.
+    sql.exec('CREATE TABLE IF NOT EXISTS hall (id TEXT PRIMARY KEY, player TEXT NOT NULL, score INTEGER NOT NULL, data TEXT NOT NULL)');
+    sql.exec('CREATE INDEX IF NOT EXISTS hall_score ON hall(score)');
+    sql.exec('CREATE INDEX IF NOT EXISTS hall_player ON hall(player)');
+    if (!sql.exec('SELECT 1 FROM meta WHERE key=?', 'hall_migrated').toArray().length) {
+      sql.exec("INSERT OR IGNORE INTO hall(id,player,score,data) SELECT player || ':earlier', player, score, data FROM board");
+      sql.exec('INSERT INTO meta(key,value) VALUES (?,?)', 'hall_migrated', Date.now());
+    }
     void ctx.blockConcurrencyWhile(async () => {
       if ((await ctx.storage.getAlarm()) === null) await ctx.storage.setAlarm(Date.now() + 86400000);
     });
@@ -127,18 +138,23 @@ export class Store extends DurableObject {
   }
 
   async board(player: string | null): Promise<BoardRow[]> {
-    const rows = this.ctx.storage.sql.exec<{ player: string; data: string }>('SELECT player,data FROM board ORDER BY score DESC LIMIT ?', BOARD_SIZE).toArray();
+    const rows = this.ctx.storage.sql.exec<{ player: string; data: string }>('SELECT player,data FROM hall ORDER BY score DESC, id LIMIT ?', BOARD_SIZE).toArray();
     return rows.map((r) => ({ ...(JSON.parse(r.data) as BoardRow), me: player !== null && r.player === player || undefined }));
   }
 
-  /** Keeps one row per player: their best season, under their current name. */
+  /**
+   * Keeps one row per player and season: a retried season keeps its best showing, and every season
+   * can make the Hall. A rename shows on all of the player's rows. Clients that send no season id
+   * (older builds) keep a single row per player, as before.
+   */
   async submit(player: string, raw: Record<string, unknown>): Promise<{ ok: true } | { ok: false; error: string }> {
     const checked = checkName(String(raw.name ?? ''));
     if ('error' in checked) return { ok: false, error: checked.error };
     const sql = this.ctx.storage.sql;
     if (raw.rename === true) {
-      const r = sql.exec<{ data: string }>('SELECT data FROM board WHERE player=?', player).toArray()[0];
-      if (r) sql.exec('UPDATE board SET data=? WHERE player=?', JSON.stringify({ ...(JSON.parse(r.data) as BoardRow), name: checked.name }), player);
+      for (const r of sql.exec<{ id: string; data: string }>('SELECT id,data FROM hall WHERE player=?', player).toArray()) {
+        sql.exec('UPDATE hall SET data=? WHERE id=?', JSON.stringify({ ...(JSON.parse(r.data) as BoardRow), name: checked.name }), r.id);
+      }
       return { ok: true };
     }
     const score = Number(raw.score), nights = Number(raw.nights);
@@ -146,10 +162,14 @@ export class Store extends DurableObject {
     if (!Number.isInteger(nights) || nights < 0 || nights > 7) return { ok: false, error: 'bad nights' };
     if (!BOSS_IDS.includes(raw.boss as never) || !TIER_IDS.includes(raw.tier as never)) return { ok: false, error: 'bad season' };
     const row: BoardRow = { name: checked.name, score, boss: raw.boss as BoardRow['boss'], tier: raw.tier as BoardRow['tier'], nights, win: raw.win === true, at: Date.now() };
-    const prev = sql.exec<{ data: string }>('SELECT data FROM board WHERE player=?', player).toArray()[0];
+    const season = Number(raw.season);
+    const id = Number.isInteger(season) && season > 0 && season < 1e10 ? `${player}:${season}` : player;
+    const prev = sql.exec<{ data: string }>('SELECT data FROM hall WHERE id=?', id).toArray()[0];
     const old = prev ? (JSON.parse(prev.data) as BoardRow) : null;
     const best = !old || row.score > old.score ? row : { ...old, name: row.name };
-    sql.exec('INSERT INTO board(player,score,data) VALUES (?,?,?) ON CONFLICT(player) DO UPDATE SET score=excluded.score, data=excluded.data', player, best.score, JSON.stringify(best));
+    sql.exec('INSERT INTO hall(id,player,score,data) VALUES (?,?,?,?) ON CONFLICT(id) DO UPDATE SET score=excluded.score, data=excluded.data', id, player, best.score, JSON.stringify(best));
+    // Only the top of the Hall is ever shown; keep a generous margin and drop the rest.
+    sql.exec('DELETE FROM hall WHERE id NOT IN (SELECT id FROM hall ORDER BY score DESC LIMIT ?)', HALL_KEEP);
     return { ok: true };
   }
 }
