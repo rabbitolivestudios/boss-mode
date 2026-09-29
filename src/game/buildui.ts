@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { BUILDINGS, CASTLE, HEROES, NIGHTS, type BuildingId, type HeroKind } from './config';
+import { BUILDINGS, CASTLE, HEROES, NIGHTS, TREASURE, type BuildingId, type HeroKind } from './config';
 import { castFor, castPortrait } from './cast';
 import type { Game, NightReport } from './game';
 import type { World } from './world';
@@ -69,7 +69,7 @@ export class BuildUi {
     $('btn-raid').addEventListener('click', onStart);
     $('btn-repair').addEventListener('click', () => {
       if (this.game.repairAll()) this.say('All repaired!');
-      else this.say(`Repairs cost ${this.game.repairCost()} gold, and ${this.game.difficulty.locked} coins stay locked in your vault`);
+      else this.say(`Repairs cost ${this.game.repairCost()} gold, and 1 coin must stay in your vault`);
       this.shown = '';
       this.refresh();
     });
@@ -87,6 +87,8 @@ export class BuildUi {
 
   show(night: number): void {
     this.world.focus = { x: 0, z: 0 };
+    this.advice = null;
+    this.shown = '';
     $('buildbar').classList.remove('hidden');
     $('build-title').textContent = `NIGHT ${night + 1} of ${NIGHTS.length}`;
     $('btn-raid').textContent = night === NIGHTS.length - 1 ? 'START THE FINAL RAID ▶' : `START NIGHT ${night + 1} ▶`;
@@ -121,14 +123,29 @@ export class BuildUi {
   }
 
   private shown = '';
+  private advice: 'safe' | 'careful' | 'risky' | null = null;
+
+  /**
+   * Tells the player how exposed the vault is: a green, yellow or red tag under the gold. It never
+   * blocks spending; the first time a purchase tips the vault into red, the tip explains why it matters.
+   */
+  private vaultAdvice(): void {
+    const t = this.game.treasure;
+    const state = t >= TREASURE.safe ? 'safe' : t >= TREASURE.risky ? 'careful' : 'risky';
+    const el = $('vault-meter');
+    el.className = state;
+    el.textContent = state === 'safe' ? '🛡️ Vault safe' : state === 'careful' ? '⚠️ Vault getting low' : '🚨 Vault at risk!';
+    if (state === 'risky' && this.advice !== null && this.advice !== 'risky') this.say(`Risky! With only ${t} gold, one or two thieves could empty your vault and end the season.`);
+    this.advice = state;
+  }
 
   refresh(): void {
     const repair = this.game.repairCost();
     const key = `${this.game.treasure}|${this.tool}|${repair}`;
     if (key === this.shown) return;
     this.shown = key;
-    $('build-gold').textContent = `💰 ${this.game.treasure} · 🔒${this.game.difficulty.locked}`;
-    $('build-gold').title = `${this.game.difficulty.locked} coins are locked in the vault and cannot be spent`;
+    $('build-gold').textContent = `💰 ${this.game.treasure}`;
+    this.vaultAdvice();
     const rb = $('btn-repair') as HTMLButtonElement;
     rb.hidden = repair <= 0;
     rb.textContent = `🔧 Repair all: 💰${repair}`;

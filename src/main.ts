@@ -7,6 +7,7 @@ import { Game, type SeasonSave } from './game/game';
 import { Input } from './game/input';
 import { duckMusic, setSoundPrefs, soundPrefs, unlockAudio } from './game/audio';
 import { music, type Mood } from './game/music';
+import { sfx } from './game/sfx';
 import { board, drawBoard, playerName, seasonScore, setPlayerName } from './game/leaderboard';
 import { track, uuid } from './analytics/track';
 import type { TierKey } from './analytics/contract';
@@ -70,13 +71,29 @@ const game: Game = new Game(world, byId('labels'), {
   combo: (n) => ui.combo(n),
 });
 
-const buildUi = new BuildUi(game, world, byId('touch-surface'), () => {
+const TIP_KEY = 'bm-vault-tip';
+const tipSeen = (): boolean => { try { return localStorage.getItem(TIP_KEY) === '1'; } catch { return false; } };
+
+function startRaid(): void {
+  // The first raid a browser ever plays opens with the vault lesson.
+  if (game.night === 0 && !tipSeen()) {
+    byId('vault-tip').classList.remove('hidden');
+    byId('btn-vault-tip').onclick = () => {
+      try { localStorage.setItem(TIP_KEY, '1'); } catch { /* storage blocked: shown again next time */ }
+      byId('vault-tip').classList.add('hidden');
+      sfx.click();
+      startRaid();
+    };
+    return;
+  }
   game.startRaid();
   buildUi.hide();
   ui.startRun();
   input.joystick = true;
   world.overview = false;
-});
+}
+
+const buildUi = new BuildUi(game, world, byId('touch-surface'), startRaid);
 
 function begin(boss: BossId): void {
   unlockAudio();

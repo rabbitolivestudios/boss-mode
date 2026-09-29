@@ -250,3 +250,18 @@ body[data-phase="build"] #build-top { padding-right: 52px; }
   .card .ic { font-size: 32px; }
   .big { font-size: 20px; padding: 8px 24px; }
 }
+
+/* Vault advice under the gold: green, yellow or red. Advice only, never a limit. */
+.gold-wrap { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+#vault-meter { font-size: 13px; text-shadow: none; border: 2px solid var(--ink); border-radius: 999px; padding: 1px 10px; color: var(--ink); }
+#vault-meter.safe { background: #3ee07a; }
+#vault-meter.careful { background: #ffd23a; }
+#vault-meter.risky { background: #ff3d5a; color: #fff; animation: vaultpulse .8s ease-in-out infinite alternate; }
+@keyframes vaultpulse { to { transform: scale(1.08); } }
+@media (prefers-reduced-motion: reduce) { #vault-meter.risky { animation: none; } }
+
+/* First-night lesson: guard the vault, balance spending and savings. */
+#vault-tip .tip-art { font-size: 64px; line-height: 1; }
+#vault-tip ul { margin: 0; padding: 0; list-style: none; max-width: 440px; display: flex; flex-direction: column; gap: 8px; }
+#vault-tip li { background: #2e1f57; border: 3px solid var(--ink); border-radius: 14px; padding: 8px 14px; font-size: 17px; }
+#vault-tip li b { color: var(--gold); }

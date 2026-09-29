@@ -67,6 +67,17 @@ export const TREASURE = {
   vaultRadius: 2.2,
   /** At or below this much gold during a raid, a warning says an empty vault loses the season. */
   lowWarning: 10,
+  /**
+   * Learning nights. Live data: a new phone player spent 98 of 100 coins, was robbed 25 s into night 1,
+   * retried with 4 coins, lost at 48 s, and quit. So on night 1 no hero goes for the gold for the first
+   * `graceSeconds`, and on the first `slowNights` nights thieves carrying gold are slow on every tier.
+   */
+  graceSeconds: 30,
+  slowNights: 2,
+  earlyGetaway: 0.85,
+  /** Build-phase vault advice: at or above `safe` reads safe, below `risky` reads risky. Advice only, never a limit. */
+  safe: 25,
+  risky: 10,
   /** Heist crews: packs of rogues that enter at the gate farthest from the boss. Size = base + t / growth. */
   heistFirst: 70,
   heistEvery: 90,
@@ -90,12 +101,6 @@ export interface Difficulty {
    * 0 gold, so on harder tiers thieves sprint away with the loot. Chill keeps them weighed down.
    */
   getaway: number;
-  /**
-   * Coins in the vault that building and repairs cannot spend. Live data: every player spent down to
-   * 2-10 coins a night, and a new phone player was robbed 25 s into night 1 with 2 coins, retried with
-   * 4, lost at 48 s, and quit. With a locked floor, only thieves escaping all night can empty the vault.
-   */
-  locked: number;
 }
 
 /**
@@ -104,10 +109,10 @@ export interface Difficulty {
  * Chill is the original Normal, Normal is the original Heroic.
  */
 export const DIFFICULTIES: Difficulty[] = [
-  { id: 'chill', name: 'Chill', hp: 1, spawn: 1, damage: 1, loot: 1, getaway: 0.85, locked: 30 },
-  { id: 'normal', name: 'Normal', hp: 1.5, spawn: 1.25, damage: 1.2, loot: 1.3, getaway: 1, locked: 20 },
-  { id: 'heroic', name: 'Heroic', hp: 2.5, spawn: 1.55, damage: 1.5, loot: 1.6, getaway: 1.15, locked: 15 },
-  { id: 'legendary', name: 'Legendary', hp: 3.3, spawn: 1.8, damage: 1.7, loot: 2, getaway: 1.25, locked: 10 },
+  { id: 'chill', name: 'Chill', hp: 1, spawn: 1, damage: 1, loot: 1, getaway: 0.85 },
+  { id: 'normal', name: 'Normal', hp: 1.5, spawn: 1.25, damage: 1.2, loot: 1.3, getaway: 1 },
+  { id: 'heroic', name: 'Heroic', hp: 2.5, spawn: 1.55, damage: 1.5, loot: 1.6, getaway: 1.15 },
+  { id: 'legendary', name: 'Legendary', hp: 3.3, spawn: 1.8, damage: 1.7, loot: 2, getaway: 1.25 },
 ];
 
 /** Tiers open without winning anything, and the tier picked by default. */

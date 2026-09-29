@@ -233,11 +233,12 @@ export class Ui {
     $('levelup').classList.add('hidden');
     const boss = BOSSES[s.boss];
     $('end-title').textContent = s.win ? 'VICTORY!' : s.reason === 'vault' ? 'ROBBED!' : 'DEFEATED!';
-    const worst = [...s.escapes].sort((a, b) => b.gold - a.gold)[0];
+    // A robbery says why it happened, so the lesson (keep a reserve, stop thieves) lands.
+    const thieves = s.nightEscapes === 1 ? '1 thief' : s.nightEscapes > 1 ? `${s.nightEscapes} thieves` : 'the thieves';
     $('end-sub').textContent = s.win
       ? `${boss.name} crushed the Chosen One and kept ${s.treasure} gold!`
       : s.reason === 'vault'
-        ? `The heroes stole ALL of ${boss.name}'s treasure!${worst ? ` ${worst.tag} got away with the most.` : ''}`
+        ? `You started night ${s.night + 1} with only ${s.nightStart} gold, and ${thieves} escaped with it. Next time keep more gold in the vault and chase anyone carrying a 💰!`
         : `The heroes got ${boss.name}... this time.`;
     const best = loadBest();
     const rec = (v: number, b: number) => (v > b ? ' 🏆' : '');

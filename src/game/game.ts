@@ -67,7 +67,10 @@ function choiceKey(c: Choice): PickKey {
   return c.kind === 'snack' ? 'snack' : `${c.kind}:${c.id}` as PickKey;
 }
 
-export interface Summary { season: number; retries: number; difficulty: Difficulty; win: boolean; time: number; kills: number; level: number; boss: BossId; champions: number; bestCombo: number; treasure: number; stolen: number; reason: 'hp' | 'vault' | 'win'; escapes: Escape[]; allPicksAt: number | null; night: number }
+export interface Summary {
+  /** Gold in the vault when the last night began, and the thieves that got away with gold that night. */
+  nightStart: number; nightEscapes: number; nightStolen: number;
+  season: number; retries: number; difficulty: Difficulty; win: boolean; time: number; kills: number; level: number; boss: BossId; champions: number; bestCombo: number; treasure: number; stolen: number; reason: 'hp' | 'vault' | 'win'; escapes: Escape[]; allPicksAt: number | null; night: number }
 
 export interface GameHooks {
   levelUp(choices: Choice[]): void;
@@ -162,6 +165,8 @@ export class Game {
   private booms: Boomerang[] = [];
   private warnedThief = false;
   private warnedLow = false;
+  /** Real seconds of slow motion left, used once when the first thief of a season grabs gold. */
+  private slowmo = 0;
   private nextHeist: number = TREASURE.heistFirst;
   // Season state
   readonly castle: Castle;
@@ -515,12 +520,12 @@ export class Game {
   // ---------- Building ----------
 
   canBuild(cx: number, cz: number, id: BuildingId): string | null {
-    // Part of the vault is locked, so building can never leave it one thief away from empty.
+    // The vault always keeps at least one coin, so building can never lose the game on its own.
     const spendable = this.spendable();
     if (BUILDINGS[id].cost > spendable) {
-      // Having the price in the vault reads like enough gold, so say why it is not.
+      // Having exactly the price reads like enough gold, so say why it is not.
       return this.treasure >= BUILDINGS[id].cost
-        ? `${this.difficulty.locked} coins are locked in your vault. You can spend ${spendable}.`
+        ? `1 coin must stay in your vault! You can spend ${spendable}.`
         : `Need ${BUILDINGS[id].cost - spendable} more gold`;
     }
     return this.castle.whyNot(cx, cz, id);
@@ -687,6 +692,7 @@ export class Game {
 
   update(dt: number, move: { x: number; z: number }): void {
     if (this.phase !== 'raid' || !this.running || this.paused || this.choosing) return;
+    if (this.slowmo > 0) { this.slowmo -= dt; dt *= 0.3; }
     this.time += dt;
     this.nightTime += dt;
     this.castle.trackBoss(this.x, this.z);
@@ -754,6 +760,7 @@ export class Game {
     this.phase = 'over';
     if (win) sfx.win(); else sfx.lose();
     this.hooks.end({
+      nightStart: this.nightStartGold, nightEscapes: this.nightEscapes, nightStolen: this.nightStolen,
       season: this.seasonSeed,
       retries: this.retries,
       difficulty: this.difficulty, win, reason, time: this.time, kills: this.kills, level: this.level, boss: this.bossId, champions: this.championsBeaten,
@@ -901,6 +908,7 @@ export class Game {
   }
 
   private lootShare(): number {
+    if (this.night === 0 && this.nightTime < TREASURE.graceSeconds) return 0;
     return Math.min(TREASURE.lootShareCap, TREASURE.lootShareBase + this.time * TREASURE.lootShareRamp) * this.difficulty.loot;
   }
 
@@ -1087,7 +1095,10 @@ export class Game {
         sfx.steal();
         if (!this.warnedThief) {
           this.warnedThief = true;
-          this.hooks.banner('THIEF!', 'Hit thieves to knock your gold out. If they escape, it is gone!');
+          // The first grab of a season slows time so the player sees who has the gold.
+          this.slowmo = 1.4;
+          this.world.addShake(0.3);
+          this.hooks.banner('STOP HIM! 💰', 'He has your gold! Hit him before he reaches a gate.');
         }
         if (Math.random() < 0.3) this.chatter.say(h, pick(LINES.grab), 2.4 * h.def.scale);
       }
@@ -1095,7 +1106,7 @@ export class Game {
       this.escape(h);
       return true;
     } else {
-      let speed = h.def.speed * (h.carry > 0 ? this.difficulty.getaway : 1);
+      let speed = h.def.speed * (h.carry > 0 ? this.getaway() : 1);
       if (h.slowT > 0) { h.slowT -= dt; speed *= CASTLE.spikeSlow; }
       h.phase += dt * speed * 2.2;
       const px = h.x, pz = h.z;
@@ -1203,9 +1214,9 @@ export class Game {
     return Math.ceil(c);
   }
 
-  /** Gold that building and repairs may use: everything above the locked part of the vault. */
+  /** Gold that building and repairs may use: all but the last coin. */
   spendable(): number {
-    return Math.max(0, this.treasure - this.difficulty.locked);
+    return Math.max(0, this.treasure - 1);
   }
 
   repairAll(): boolean {
@@ -1217,6 +1228,11 @@ export class Game {
     for (const b of this.castle.buildings) b.hp = b.maxHp;
     sfx.repair();
     return true;
+  }
+
+  /** Speed of a thief carrying gold: slow on the learning nights, then the tier's own. */
+  private getaway(): number {
+    return this.night < TREASURE.slowNights ? Math.min(TREASURE.earlyGetaway, this.difficulty.getaway) : this.difficulty.getaway;
   }
 
   private escape(h: Hero): void {
