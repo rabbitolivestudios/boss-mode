@@ -98,6 +98,34 @@ export class Store extends DurableObject {
     return summarize(sessions, seasons, safeDays, traffic, now, since);
   }
 
+  /**
+   * Copies the anonymous analytics (sessions and seasons, never the name leaderboard) into the D1
+   * database, so they can be read from the Cloudflare account without the dashboard. Rows are the
+   * same validated JSON the dashboard uses; rows past retention are dropped there too.
+   */
+  async mirror(): Promise<{ sessions: number; seasons: number } | null> {
+    const db = (this.env as { DB?: D1Database }).DB;
+    if (!db) return null;
+    await db.batch([
+      db.prepare('CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, first_at INTEGER NOT NULL, data TEXT NOT NULL)'),
+      db.prepare('CREATE TABLE IF NOT EXISTS seasons (id TEXT PRIMARY KEY, started_at INTEGER NOT NULL, data TEXT NOT NULL)'),
+      db.prepare('CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)'),
+    ]);
+    const sql = this.ctx.storage.sql;
+    const cutoff = Date.now() - RETENTION_MS;
+    const sessions = sql.exec<{ id: string; first_at: number; data: string }>('SELECT id,first_at,data FROM sessions').toArray();
+    const seasons = sql.exec<{ id: string; started_at: number; data: string }>('SELECT id,started_at,data FROM seasons').toArray();
+    const writes: D1PreparedStatement[] = [
+      ...sessions.map((r) => db.prepare('INSERT INTO sessions(id,first_at,data) VALUES (?,?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data').bind(r.id, r.first_at, r.data)),
+      ...seasons.map((r) => db.prepare('INSERT INTO seasons(id,started_at,data) VALUES (?,?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data').bind(r.id, r.started_at, r.data)),
+      db.prepare('DELETE FROM sessions WHERE first_at<?').bind(cutoff),
+      db.prepare('DELETE FROM seasons WHERE started_at<?').bind(cutoff),
+      db.prepare("INSERT INTO meta(key,value) VALUES ('mirrored_at',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").bind(new Date().toISOString()),
+    ];
+    for (let i = 0; i < writes.length; i += 80) await db.batch(writes.slice(i, i + 80));
+    return { sessions: sessions.length, seasons: seasons.length };
+  }
+
   async board(player: string | null): Promise<BoardRow[]> {
     const rows = this.ctx.storage.sql.exec<{ player: string; data: string }>('SELECT player,data FROM board ORDER BY score DESC LIMIT ?', BOARD_SIZE).toArray();
     return rows.map((r) => ({ ...(JSON.parse(r.data) as BoardRow), me: player !== null && r.player === player || undefined }));

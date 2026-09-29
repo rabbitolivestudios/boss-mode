@@ -69,7 +69,7 @@ export class BuildUi {
     $('btn-raid').addEventListener('click', onStart);
     $('btn-repair').addEventListener('click', () => {
       if (this.game.repairAll()) this.say('All repaired!');
-      else this.say(`Repairs cost ${this.game.repairCost()} gold, and 1 coin must stay in your vault`);
+      else this.say(`Repairs cost ${this.game.repairCost()} gold, and ${this.game.difficulty.locked} coins stay locked in your vault`);
       this.shown = '';
       this.refresh();
     });
@@ -127,7 +127,8 @@ export class BuildUi {
     const key = `${this.game.treasure}|${this.tool}|${repair}`;
     if (key === this.shown) return;
     this.shown = key;
-    $('build-gold').textContent = `💰 ${this.game.treasure}`;
+    $('build-gold').textContent = `💰 ${this.game.treasure} · 🔒${this.game.difficulty.locked}`;
+    $('build-gold').title = `${this.game.difficulty.locked} coins are locked in the vault and cannot be spent`;
     const rb = $('btn-repair') as HTMLButtonElement;
     rb.hidden = repair <= 0;
     rb.textContent = `🔧 Repair all: 💰${repair}`;
@@ -135,7 +136,7 @@ export class BuildUi {
     document.querySelectorAll<HTMLButtonElement>('#tools .tool').forEach((b) => {
       const id = b.dataset.tool as Tool;
       b.classList.toggle('on', id === this.tool);
-      b.classList.toggle('poor', id !== 'sell' && BUILDINGS[id].cost >= this.game.treasure);
+      b.classList.toggle('poor', id !== 'sell' && BUILDINGS[id].cost > this.game.spendable());
     });
   }
 

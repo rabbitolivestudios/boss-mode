@@ -12,6 +12,8 @@ interface Env extends PasswordConfiguration {
   BOARD_LIMITER: RateLimit;
   READ_LIMITER: RateLimit;
   LOGIN_LIMITER: RateLimit;
+  /** A read copy of the anonymous analytics, so they can be queried from the Cloudflare account. */
+  DB?: D1Database;
 }
 
 const PLAYER = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -125,5 +127,9 @@ export default {
       if (e instanceof BadEvent || e instanceof SyntaxError) return json({ error: 'invalid' }, 400);
       throw e;
     }
+  },
+
+  async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+    ctx.waitUntil(store(env).mirror());
   },
 } satisfies ExportedHandler<Env>;

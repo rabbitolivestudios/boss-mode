@@ -515,12 +515,12 @@ export class Game {
   // ---------- Building ----------
 
   canBuild(cx: number, cz: number, id: BuildingId): string | null {
-    // The vault always keeps at least one coin, so building can never lose the game on its own.
-    const spendable = this.treasure - 1;
+    // Part of the vault is locked, so building can never leave it one thief away from empty.
+    const spendable = this.spendable();
     if (BUILDINGS[id].cost > spendable) {
-      // Having exactly the price reads like enough gold, so say why it is not.
+      // Having the price in the vault reads like enough gold, so say why it is not.
       return this.treasure >= BUILDINGS[id].cost
-        ? `1 coin must stay in your vault! You can spend ${Math.max(0, spendable)}.`
+        ? `${this.difficulty.locked} coins are locked in your vault. You can spend ${spendable}.`
         : `Need ${BUILDINGS[id].cost - spendable} more gold`;
     }
     return this.castle.whyNot(cx, cz, id);
@@ -1203,9 +1203,14 @@ export class Game {
     return Math.ceil(c);
   }
 
+  /** Gold that building and repairs may use: everything above the locked part of the vault. */
+  spendable(): number {
+    return Math.max(0, this.treasure - this.difficulty.locked);
+  }
+
   repairAll(): boolean {
     const cost = this.repairCost();
-    if (this.phase !== 'build' || cost <= 0 || this.treasure - cost < 1) return false;
+    if (this.phase !== 'build' || cost <= 0 || cost > this.spendable()) return false;
     this.treasure -= cost;
     this.buildStats.spent += cost;
     this.buildStats.repaired = true;

@@ -27,5 +27,9 @@
   // The session-signing key is generated inside the Durable Object on first use.
   // To change the password, run node scripts/password-fingerprint.mjs and paste the result here.
   "vars": { "ANALYTICS_PASSWORD_VERIFIER": "L1bXdiRlQ0is5w5oBK56sA.UY57TDFajv6Nqq603DShtuS5hQ-ShADVc39rs4Bw01g" },
-  "routes": [{ "pattern": "bossmode.mac-tbo.com", "custom_domain": true }]
+  "routes": [{ "pattern": "bossmode.mac-tbo.com", "custom_domain": true }],
+  // A read copy of the anonymous analytics (no leaderboard names), refreshed every 10 minutes,
+  // so the numbers can be queried from the Cloudflare account without the dashboard.
+  "d1_databases": [{ "binding": "DB", "database_name": "boss-mode-analytics", "database_id": "62e75ffa-d635-401b-b8cb-3be0df3e9fc4" }],
+  "triggers": { "crons": ["*/10 * * * *"] }
 }

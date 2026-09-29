@@ -90,6 +90,12 @@ export interface Difficulty {
    * 0 gold, so on harder tiers thieves sprint away with the loot. Chill keeps them weighed down.
    */
   getaway: number;
+  /**
+   * Coins in the vault that building and repairs cannot spend. Live data: every player spent down to
+   * 2-10 coins a night, and a new phone player was robbed 25 s into night 1 with 2 coins, retried with
+   * 4, lost at 48 s, and quit. With a locked floor, only thieves escaping all night can empty the vault.
+   */
+  locked: number;
 }
 
 /**
@@ -98,10 +104,10 @@ export interface Difficulty {
  * Chill is the original Normal, Normal is the original Heroic.
  */
 export const DIFFICULTIES: Difficulty[] = [
-  { id: 'chill', name: 'Chill', hp: 1, spawn: 1, damage: 1, loot: 1, getaway: 0.85 },
-  { id: 'normal', name: 'Normal', hp: 1.5, spawn: 1.25, damage: 1.2, loot: 1.3, getaway: 1 },
-  { id: 'heroic', name: 'Heroic', hp: 2.5, spawn: 1.55, damage: 1.5, loot: 1.6, getaway: 1.15 },
-  { id: 'legendary', name: 'Legendary', hp: 3.3, spawn: 1.8, damage: 1.7, loot: 2, getaway: 1.25 },
+  { id: 'chill', name: 'Chill', hp: 1, spawn: 1, damage: 1, loot: 1, getaway: 0.85, locked: 30 },
+  { id: 'normal', name: 'Normal', hp: 1.5, spawn: 1.25, damage: 1.2, loot: 1.3, getaway: 1, locked: 20 },
+  { id: 'heroic', name: 'Heroic', hp: 2.5, spawn: 1.55, damage: 1.5, loot: 1.6, getaway: 1.15, locked: 15 },
+  { id: 'legendary', name: 'Legendary', hp: 3.3, spawn: 1.8, damage: 1.7, loot: 2, getaway: 1.25, locked: 10 },
 ];
 
 /** Tiers open without winning anything, and the tier picked by default. */
