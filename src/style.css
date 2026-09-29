@@ -265,3 +265,9 @@ body[data-phase="build"] #build-top { padding-right: 52px; }
 #vault-tip ul { margin: 0; padding: 0; list-style: none; max-width: 440px; display: flex; flex-direction: column; gap: 8px; }
 #vault-tip li { background: #2e1f57; border: 3px solid var(--ink); border-radius: 14px; padding: 8px 14px; font-size: 17px; }
 #vault-tip li b { color: var(--gold); }
+
+/* Learning nights: a bouncing pointer over each thief in view carrying gold. */
+.marker.carrier { background: none; border: none; box-shadow: none; width: 34px; height: 34px; margin: -17px 0 0 -17px; }
+.marker.carrier b { font-size: 42px; animation: pointer .45s ease-in-out infinite alternate; filter: drop-shadow(0 2px 0 #2a1f3d); }
+@keyframes pointer { from { transform: translateY(-6px); } to { transform: translateY(4px); } }
+@media (prefers-reduced-motion: reduce) { .marker.carrier b { animation: none; } }

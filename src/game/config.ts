@@ -73,6 +73,13 @@ export const TREASURE = {
    * `graceSeconds`, and on the first `slowNights` nights thieves carrying gold are slow on every tier.
    */
   graceSeconds: 30,
+  /**
+   * Night 1 is a warm-up: this share of the usual heroes (and rogues) go for the gold, and no heist crew
+   * comes. Live data after the Reddit post: two new Normal players on night 1 saw 31 and 4 thieves reach
+   * the vault, 8 and 3 escape, and one was robbed at 56 s; the test bot never sees this because it chases
+   * every carrier perfectly.
+   */
+  warmupLoot: 0.35,
   slowNights: 2,
   earlyGetaway: 0.85,
   /** Build-phase vault advice: at or above `safe` reads safe, below `risky` reads risky. Advice only, never a limit. */

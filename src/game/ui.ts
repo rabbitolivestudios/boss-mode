@@ -186,7 +186,7 @@ export class Ui {
       el.hidden = !m;
       if (!m) return;
       el.className = `marker ${m.kind}`;
-      el.innerHTML = `${m.kind === 'vault' ? '💰' : m.kind === 'breach' ? '🚨' : '💸'}<i style="transform: rotate(${m.angle}rad) translateX(26px)"></i>`;
+      el.innerHTML = m.kind === 'carrier' ? '<b>🔻</b>' : `${m.kind === 'vault' ? '💰' : m.kind === 'breach' ? '🚨' : '💸'}<i style="transform: rotate(${m.angle}rad) translateX(26px)"></i>`;
       el.style.transform = `translate(${m.x}px, ${m.y}px)`;
     });
   }

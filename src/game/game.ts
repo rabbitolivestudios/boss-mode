@@ -868,6 +868,8 @@ export class Game {
       if (idx >= 0) { this.spawnChampion(idx, hp); this.hooks.banner(`${CHAMPIONS[idx].name} is back for more!`, 'Knock the gold out of him!'); }
     }
 
+    // No heist crew on the warm-up night; the first one comes on night 2.
+    if (this.night === 0 && t >= this.nextHeist) this.nextHeist = t + TREASURE.heistEvery;
     if (t >= this.nextHeist) {
       this.nextHeist += TREASURE.heistEvery;
       // The crew picks the gate farthest from the boss, so guarding the vault means leaving it.
@@ -941,6 +943,7 @@ export class Game {
     for (const w of WAVES) if (this.time >= w.from) band = w;
     const entries = Object.entries(band.mix) as [HeroKind, number][];
     for (const c of COUNTERS) if (this.night >= c.from) entries.push([c.kind, c.weight * (this.counterBoost.get(c.kind) ?? 1)]);
+    if (this.night === 0) for (const e of entries) if (e[0] === 'rogue') e[1] *= TREASURE.warmupLoot;
     let roll = Math.random() * entries.reduce((s, [, n]) => s + n, 0);
     for (const [k, n] of entries) { roll -= n; if (roll <= 0) return k; }
     return 'noob';
@@ -957,7 +960,7 @@ export class Game {
 
   private lootShare(): number {
     if (this.night === 0 && this.nightTime < TREASURE.graceSeconds) return 0;
-    return Math.min(TREASURE.lootShareCap, TREASURE.lootShareBase + this.time * TREASURE.lootShareRamp) * this.difficulty.loot;
+    return (this.night === 0 ? TREASURE.warmupLoot : 1) * Math.min(TREASURE.lootShareCap, TREASURE.lootShareBase + this.time * TREASURE.lootShareRamp) * this.difficulty.loot;
   }
 
   /** How much tougher heroes are right now, including the difficulty tier. */
@@ -2411,14 +2414,21 @@ export class Game {
    * Edge-of-screen arrows for things the player must not lose track of: the vault when it is off
    * screen, and the nearest thieves carrying gold. Positions are in CSS pixels, clamped to the edge.
    */
-  markers(): { kind: 'vault' | 'thief' | 'breach'; x: number; y: number; angle: number }[] {
+  markers(): { kind: 'vault' | 'thief' | 'breach' | 'carrier'; x: number; y: number; angle: number }[] {
     const w = window.innerWidth, h = window.innerHeight, pad = 34;
-    const out: { kind: 'vault' | 'thief' | 'breach'; x: number; y: number; angle: number }[] = [];
+    const out: { kind: 'vault' | 'thief' | 'breach' | 'carrier'; x: number; y: number; angle: number }[] = [];
     const place = (kind: 'vault' | 'thief' | 'breach', wx: number, wz: number) => {
       this.v3.set(wx, 1, wz).project(this.world.camera);
       let sx = (this.v3.x * 0.5 + 0.5) * w, sy = (-this.v3.y * 0.5 + 0.5) * h;
       if (this.v3.z > 1) { sx = w - sx; sy = h - sy; }
-      if (sx > pad && sx < w - pad && sy > pad + 60 && sy < h - pad) return;
+      if (sx > pad && sx < w - pad && sy > pad + 60 && sy < h - pad) {
+        // On the learning nights, a thief in view gets a bouncing pointer over its head.
+        if (kind === 'thief' && this.night < TREASURE.slowNights) {
+          this.v3.set(wx, 3.6, wz).project(this.world.camera);
+          out.push({ kind: 'carrier', x: (this.v3.x * 0.5 + 0.5) * w, y: (-this.v3.y * 0.5 + 0.5) * h, angle: 0 });
+        }
+        return;
+      }
       const cx = w / 2, cy = h / 2;
       const angle = Math.atan2(sy - cy, sx - cx);
       const t = Math.min((w / 2 - pad) / Math.abs(Math.cos(angle) || 1e-6), (h / 2 - pad - 30) / Math.abs(Math.sin(angle) || 1e-6));
