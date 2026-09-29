@@ -180,12 +180,42 @@ export const WAVES: { from: number; mix: Partial<Record<HeroKind, number>> }[] =
   { from: 360, mix: { noob: 18, archer: 22, sweat: 18, knight: 22, healer: 8, rogue: 12 } },
 ];
 
-/** Champions arrive partway through a given night of the season. */
-export const CHAMPIONS: { night: number; at: number; name: string; hpMul: number; final?: boolean }[] = [
-  { night: 3, at: 50, name: 'Sir Tryhard', hpMul: 1.6 },
-  { night: 5, at: 50, name: 'xX_Clutch_Xx', hpMul: 4.5 },
-  { night: 7, at: 35, name: 'THE CHOSEN ONE', hpMul: 18, final: true },
+export type ChampionPower = 'rally' | 'guard' | 'volley' | 'clones' | 'mend' | 'heist' | 'chosen';
+
+/**
+ * A boss hero ends every night: it arrives `at` seconds in, and dawn waits until it is beaten, even
+ * past the timer. `hpMul` scales the Champion base health (times the tier's hero health); `chest` is
+ * the gold and level-ups its treasure chest gives (level-ups only on nights 1-2: six chests of
+ * level-ups snowballed, taking bot Normal wins from 9/30 to 18/36); `shoots` gives it the ring of arrows. Powers are tuned
+ * in CHAMPION_POWERS. 72 bot seasons: with every boss shooting, Heroic bots died 60-75 s into night 1
+ * (right after the Noob Captain), so nights 1-3 fight up close with less health; without the rings the
+ * second half went soft (Normal nights 5-6 lowest health back near 75%), so nights 4-6 shoot and hit harder.
+ */
+export const CHAMPIONS: { night: number; at: number; name: string; hpMul: number; power: ChampionPower; shoots: boolean; chest: { gold: number; levels: number }; blurb: string; final?: boolean }[] = [
+  { night: 1, at: 52, name: 'Noob Captain', hpMul: 0.45, power: 'rally', shoots: false, chest: { gold: 10, levels: 1 }, blurb: 'Calls in noob squads, and they run faster while he stands' },
+  { night: 2, at: 58, name: 'Sir Tryhard', hpMul: 0.85, power: 'guard', shoots: false, chest: { gold: 10, levels: 1 }, blurb: 'Raises a golden shield, then charges. Hit him when it drops!' },
+  { night: 3, at: 65, name: 'Quickscope Queen', hpMul: 1.6, power: 'volley', shoots: false, chest: { gold: 20, levels: 0 }, blurb: 'Rains arrows on the red circles. Keep moving!' },
+  { night: 4, at: 71, name: 'xX_Clutch_Xx', hpMul: 3.0, power: 'clones', shoots: true, chest: { gold: 20, levels: 0 }, blurb: 'Splits into fakes. Only one is real' },
+  { night: 5, at: 78, name: 'Dr. Heals', hpMul: 3.4, power: 'mend', shoots: true, chest: { gold: 20, levels: 0 }, blurb: 'Heals every hero around her. Take her down first!' },
+  { night: 6, at: 84, name: 'Captain Loot', hpMul: 3.4, power: 'heist', shoots: true, chest: { gold: 20, levels: 0 }, blurb: 'Grabs 10 coins at once and runs. Knock them out of him!' },
+  { night: 7, at: 35, name: 'THE CHOSEN ONE', hpMul: 18, power: 'chosen', shoots: true, chest: { gold: 0, levels: 0 }, blurb: 'Beat the Chosen One to win!', final: true },
 ];
+
+/** Tuning for the boss heroes' powers. */
+export const CHAMPION_POWERS = {
+  /** Noob Captain: squad size and interval, and how much faster noobs run while he stands. */
+  rally: { every: 8, squad: 6, noobSpeed: 1.25 },
+  /** Sir Tryhard: seconds shield up and down; share of damage taken while up; charge speed. */
+  guard: { up: 3, down: 3, taken: 0.2, charge: 3 },
+  /** Quickscope Queen: circles per volley, seconds between volleys, warning time, radius, and damage. */
+  volley: { count: 5, every: 5, warn: 1.2, radius: 1.8, damage: 12 },
+  /** xX_Clutch_Xx: fakes per split, seconds between splits, and a fake's health as a share of a Champion's base. */
+  clones: { count: 2, every: 12, hp: 0.06 },
+  /** Dr. Heals: seconds between heals, radius, and share of max health restored. */
+  mend: { every: 3, radius: 7, share: 0.15 },
+  /** Captain Loot: coins grabbed per trip, getaway speed, and seconds before he comes back after escaping. */
+  heist: { carry: 10, getaway: 1.3, back: 12 },
+};
 
 /**
  * The season: seven nights, each a raid with a build phase before it. `duration` is seconds of raid;

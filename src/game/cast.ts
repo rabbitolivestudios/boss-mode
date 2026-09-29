@@ -12,13 +12,13 @@ const FIT = 0.86;
 
 export type CastId =
   | 'noob' | 'noob2' | 'archer' | 'archer2' | 'knight' | 'knight2' | 'sweat' | 'sweat2' | 'healer' | 'healer2'
-  | 'rogue' | 'rogue2' | 'shieldbearer' | 'glider' | 'nerd' | 'sapper' | 'goblin' | 'tryhard' | 'clutch' | 'chosen';
+  | 'rogue' | 'rogue2' | 'shieldbearer' | 'glider' | 'nerd' | 'sapper' | 'goblin' | 'captain' | 'tryhard' | 'queen' | 'clutch' | 'medic' | 'loot' | 'chosen';
 
-export const CAST: CastId[] = ['noob', 'noob2', 'archer', 'archer2', 'knight', 'knight2', 'sweat', 'sweat2', 'healer', 'healer2', 'rogue', 'rogue2', 'shieldbearer', 'glider', 'nerd', 'sapper', 'goblin', 'tryhard', 'clutch', 'chosen'];
+export const CAST: CastId[] = ['noob', 'noob2', 'archer', 'archer2', 'knight', 'knight2', 'sweat', 'sweat2', 'healer', 'healer2', 'rogue', 'rogue2', 'shieldbearer', 'glider', 'nerd', 'sapper', 'goblin', 'captain', 'tryhard', 'queen', 'clutch', 'medic', 'loot', 'chosen'];
 
 /** Which drawing a hero uses: two outfits per class for crowd variety, and a unique look per champion. */
 export function castFor(kind: HeroKind | 'goblin', variant: number, championIndex = 0): CastId {
-  if (kind === 'champion') return (['tryhard', 'clutch', 'chosen'] as const)[championIndex] ?? 'tryhard';
+  if (kind === 'champion') return (['captain', 'tryhard', 'queen', 'clutch', 'medic', 'loot', 'chosen'] as const)[championIndex] ?? 'tryhard';
   if (kind === 'goblin') return 'goblin';
   const withVariants = ['noob', 'archer', 'knight', 'sweat', 'healer', 'rogue'];
   return (variant && withVariants.includes(kind) ? `${kind}2` : kind) as CastId;
@@ -565,6 +565,55 @@ const chosenLook: Look = {
   hand: (g) => sword(g, '#ffffff', 46, '#fff27a'),
 };
 
+/** A little crown for the boss heroes, sitting on whatever hat or hair the look already has. */
+function crown(g: G, x: number, y: number, w: number): void {
+  blob(g, '#ffd23a', () => { g.moveTo(x - w, y + 8); g.lineTo(x - w, y - 4); g.lineTo(x - w / 2, y + 2); g.lineTo(x, y - 8); g.lineTo(x + w / 2, y + 2); g.lineTo(x + w, y - 4); g.lineTo(x + w, y + 8); g.closePath(); }, 2.5);
+  dot(g, x, y + 3, 2.5, '#ff3d5a');
+}
+
+const captainLook: Look = {
+  ...noobLook('#2f5dff', '#2a2a3a'),
+  back: cape('#ff3d5a'),
+  torso: (g) => { for (const y of [70, 80, 90]) dot(g, 64, y, 2.5, '#ffd23a'); line(g, 4, '#ffd23a', [[46, 64], [58, 64]]); },
+  hat: (g) => {
+    blob(g, '#2f5dff', () => { g.moveTo(40, 26); g.quadraticCurveTo(42, 4, 66, 4); g.quadraticCurveTo(90, 4, 90, 26); g.closePath(); });
+    blob(g, '#2a2a3a', () => g.roundRect(34, 22, 60, 8, 4), 2.5);
+    blob(g, '#ffd23a', () => { g.moveTo(64, 8); g.lineTo(67, 15); g.lineTo(74, 15); g.lineTo(68, 19); g.lineTo(71, 26); g.lineTo(64, 21); g.lineTo(57, 26); g.lineTo(60, 19); g.lineTo(54, 15); g.lineTo(61, 15); g.closePath(); }, 1.5);
+  },
+};
+
+const queenLook: Look = {
+  ...archerLook('#9b4dff', '#6b2cd1'),
+  hat: (g) => {
+    const hair = () => { g.moveTo(40, 50); g.quadraticCurveTo(34, 10, 66, 10); g.quadraticCurveTo(94, 10, 92, 30); g.lineTo(82, 24); g.quadraticCurveTo(62, 20, 52, 32); g.quadraticCurveTo(48, 48, 54, 64); g.lineTo(40, 66); g.closePath(); };
+    blob(g, '#ff6fb0', hair);
+    shine(g, 52, 16, 8, 4);
+    crown(g, 66, 6, 14);
+  },
+};
+
+const medicLook: Look = {
+  ...healerLook('#c68a5e', '#ff3d5a'),
+  back: cape('#3ed17a'),
+  hat: (g) => {
+    blob(g, '#fbfbf5', () => { g.moveTo(42, 24); g.lineTo(46, 4); g.lineTo(84, 4); g.lineTo(88, 24); g.closePath(); });
+    blob(g, '#ff3d5a', () => { g.rect(61, 6, 6, 14); g.rect(57, 10, 14, 6); }, 0);
+    crown(g, 66, -6, 12);
+  },
+};
+
+const lootLook: Look = {
+  ...rogueLook('#1f1f2f', '#d8263a'),
+  back: cape('#d8263a'),
+  hat: (g) => {
+    const tricorn = () => { g.moveTo(30, 22); g.quadraticCurveTo(64, 34, 98, 22); g.quadraticCurveTo(92, 2, 64, 0); g.quadraticCurveTo(36, 2, 30, 22); g.closePath(); };
+    blob(g, '#1f1f2f', tricorn);
+    line(g, 3, '#ffd23a', [[34, 22], [64, 30], [94, 22]]);
+    blob(g, '#ffd23a', () => g.ellipse(64, 14, 8, 7, 0, 0, Math.PI * 2), 2);
+    g.font = 'bold 11px Arial Black, sans-serif'; g.textAlign = 'center'; g.fillStyle = INK; g.fillText('$', 64, 18);
+  },
+};
+
 const LOOKS: Record<CastId, Look> = {
   noob: noobLook('#2f7dff', '#3fb24f'),
   noob2: noobLook('#ff4d4d', '#2f5dff'),
@@ -583,7 +632,11 @@ const LOOKS: Record<CastId, Look> = {
   nerd: nerdLook,
   sapper: sapperLook,
   goblin: goblinLook,
+  captain: captainLook,
   tryhard: tryhardLook,
+  queen: queenLook,
+  medic: medicLook,
+  loot: lootLook,
   clutch: clutchLook,
   chosen: chosenLook,
 };

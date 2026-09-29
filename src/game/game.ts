@@ -1,13 +1,13 @@
 import * as THREE from 'three';
 import {
-  BOOMERANG, BOSSES, BUILDINGS, CASTLE, CHAIN, FROST, TORNADO, CHAMPIONS, COUNTERS, DEFAULT_TIER, SABOTAGE, DIFFICULTIES, HEROES, LIMIT_BREAKS, MAX_LEVEL, MINION, NIGHT_TOUGHNESS, NIGHTS, PASSIVES, PHYSICS, RUN, STARS, TRAPS, TREASURE, WAVES, WEAPONS, XP, xpToNext,
-  type BossId, type BuildingId, type Difficulty, type HeroDef, type HeroKind, type PassiveId, type WeaponId,
+  BOOMERANG, BOSSES, BUILDINGS, CASTLE, CHAIN, FROST, TORNADO, CHAMPION_POWERS, CHAMPIONS, COUNTERS, DEFAULT_TIER, SABOTAGE, DIFFICULTIES, HEROES, LIMIT_BREAKS, MAX_LEVEL, MINION, NIGHT_TOUGHNESS, NIGHTS, PASSIVES, PHYSICS, RUN, STARS, TRAPS, TREASURE, WAVES, WEAPONS, XP, xpToNext,
+  type BossId, type BuildingId, type ChampionPower, type Difficulty, type HeroDef, type HeroKind, type PassiveId, type WeaponId,
 } from './config';
 import { Fx } from './fx';
 import { buildBoss, instanced, toon, type BossModel } from './models';
 import { gamerTag } from './names';
 import { BOSS_PARTS, bossAtlas, type Face } from './bossart';
-import { CAST, castAtlas, castFor } from './cast';
+import { CAST, castAtlas, castFor, type CastId } from './cast';
 import { CHAMPION_LINES, Chatter, LINES, pick } from './chatter';
 import { Castle, type Building } from './castle';
 import { castleAtlas, castleCell } from './castleart';
@@ -36,7 +36,13 @@ export interface Hero {
   shield: boolean; target: Building | null; workT: number; bossLaunch: boolean; lastHit: 'boss' | BuildingId;
   /** Seconds left frozen by Frost Nova: no walking, stealing or fighting, and the boss hits harder. */
   iceT: number;
+  /** Boss heroes: their power, its timers, seconds of shield left, a look override, and whether this is a fake clone. */
+  power: ChampionPower | null; powerT: number; power2T: number; guard: number; look: CastId | null; decoy: boolean;
 }
+/** A fake xX_Clutch_Xx: looks and moves like the real one, but falls in a few hits. */
+const DECOY: HeroDef = { ...HEROES.champion, dps: 8, ranged: undefined, dash: { cooldown: 4, duration: 0.4, mult: 2.5 } };
+/** A Quickscope Queen arrow volley: a red circle that hurts the boss when the arrows land. */
+interface Volley { x: number; z: number; t: number; ring: number }
 /** Gold knocked out of a thief's sack: it bounces, then flies home to the vault. */
 interface Spill { x: number; z: number; y: number; vx: number; vz: number; vy: number; t: number; sx: number; sz: number }
 export interface Escape { tag: string; gold: number; kind: HeroKind }
@@ -161,6 +167,12 @@ export class Game {
   private seasonSeed = 1;
   private spills: Spill[] = [];
   private flashes: Flash[] = [];
+  private volleys: Volley[] = [];
+  /** Tonight's boss hero: beaten yet, whether the dawn warning showed, and a Captain Loot on his way back. */
+  private bossBeaten = false;
+  private bossWarned = false;
+  private bossReturn: { at: number; hp: number } | null = null;
+  private chestReward = { gold: 0, levels: 0 };
   private twisters: Twister[] = [];
   private booms: Boomerang[] = [];
   private warnedThief = false;
@@ -429,7 +441,7 @@ export class Game {
     for (const h of this.heroes) this.dropExtras(h);
     this.heroes = []; this.champions = []; this.shots = []; this.gems = []; this.lava = []; this.minions = [];
     this.traps = this.traps.filter(() => false);
-    this.spills = []; this.flashes = []; this.twisters = []; this.booms = []; this.chest = null; this.chestMesh.visible = false;
+    this.spills = []; this.flashes = []; this.volleys = []; this.bossReturn = null; this.twisters = []; this.booms = []; this.chest = null; this.chestMesh.visible = false;
     if (this.paper) this.paper.corpses = [];
     this.combo = 0; this.comboT = 0; this.frenzy = 0; this.hurt = 0; this.ouch = 0;
     this.fx.clear();
@@ -457,6 +469,7 @@ export class Game {
     if (this.phase !== 'build') return;
     this.phase = 'raid';
     this.running = true;
+    this.bossBeaten = false; this.bossWarned = false; this.bossReturn = null;
     this.hover = null;
     this.nightTime = 0; this.nightKills = 0; this.nightStolen = 0; this.nightRecovered = 0; this.warnedLow = false; this.nightGrabs = 0; this.nightEscapes = 0;
     this.nightDamage = 0; this.nightBuildingKills.clear();
@@ -738,7 +751,12 @@ export class Game {
     this.updateSpills(dt);
     this.updateBuildings(dt);
     this.heroes = this.heroes.filter((h) => h.alive);
-    if (this.running && this.nightTime >= NIGHTS[this.night].duration) { this.dawn(); return; }
+    if (this.running && this.nightTime >= NIGHTS[this.night].duration) {
+      // Dawn waits for tonight's boss hero.
+      const boss = this.bossToBeat();
+      if (!boss) { this.dawn(); return; }
+      if (!this.bossWarned) { this.bossWarned = true; this.hooks.banner(`Defeat ${boss} to see dawn!`, 'The sun will not rise while the boss stands'); sfx.horn(); }
+    }
 
     if (this.running && !this.warnedLow && this.treasure <= TREASURE.lowWarning) {
       this.warnedLow = true;
@@ -838,19 +856,16 @@ export class Game {
     const champ = CHAMPIONS[this.nextChampion];
     if (champ && champ.night - 1 === this.night && this.nightTime >= champ.at) {
       this.nextChampion++;
-      const h = this.makeHero('champion');
-      h.hp = h.maxHp = HEROES.champion.hp * champ.hpMul * this.difficulty.hp;
-      h.tag = champ.name;
-      h.final = champ.final === true;
-      h.champ = this.nextChampion - 1;
-      h.label = this.makeLabel(champ.name, true);
-      this.chatter.say(h, CHAMPION_LINES[h.champ] ?? CHAMPION_LINES[0], 2.4 * h.def.scale + 0.6, true);
-      h.aura = new THREE.Mesh(new THREE.RingGeometry(1.4, 1.8, 32), new THREE.MeshBasicMaterial({ color: 0xffd23a, transparent: true, opacity: 0.7, side: THREE.DoubleSide }));
-      h.aura.rotation.x = -Math.PI / 2;
-      this.world.scene.add(h.aura);
-      this.champions.push(h);
-      sfx.horn();
-      this.hooks.banner(`⚔️ ${champ.name} has joined the raid!`, champ.final ? 'Beat the Chosen One to win!' : 'A champion hero is hunting you');
+      this.spawnChampion(this.nextChampion - 1, null);
+      this.slowmo = Math.max(this.slowmo, 0.8);
+      this.hooks.banner(`⚔️ ${champ.name} has joined the raid!`, champ.blurb);
+    }
+    // Captain Loot comes back after an escape, straight away once the timer has run out.
+    if (this.bossReturn && (this.nightTime >= this.bossReturn.at || this.nightTime >= NIGHTS[this.night].duration)) {
+      const hp = this.bossReturn.hp;
+      this.bossReturn = null;
+      const idx = CHAMPIONS.findIndex((c) => c.night - 1 === this.night);
+      if (idx >= 0) { this.spawnChampion(idx, hp); this.hooks.banner(`${CHAMPIONS[idx].name} is back for more!`, 'Knock the gold out of him!'); }
     }
 
     if (t >= this.nextHeist) {
@@ -886,6 +901,39 @@ export class Game {
       if (this.heroes.length >= RUN.maxHeroes) { this.spawnAcc = 0; break; }
       this.makeHero(this.pickKind());
     }
+  }
+
+  /** Brings in a boss hero; `hp` carries over the health of one returning after an escape. */
+  private spawnChampion(idx: number, hp: number | null): Hero {
+    const champ = CHAMPIONS[idx];
+    const h = this.makeHero('champion');
+    h.maxHp = HEROES.champion.hp * champ.hpMul * this.difficulty.hp;
+    h.hp = hp ?? h.maxHp;
+    h.tag = champ.name;
+    h.final = champ.final === true;
+    h.champ = idx;
+    h.power = champ.power;
+    h.powerT = 2;
+    h.power2T = 4;
+    if (champ.power === 'heist') h.goal = 'loot';
+    h.label = this.makeLabel(champ.name, true);
+    this.chatter.say(h, CHAMPION_LINES[idx] ?? CHAMPION_LINES[0], 2.4 * h.def.scale + 0.6, true);
+    this.addAura(h);
+    this.champions.push(h);
+    sfx.horn();
+    return h;
+  }
+
+  private addAura(h: Hero): void {
+    h.aura = new THREE.Mesh(new THREE.RingGeometry(1.4, 1.8, 32), new THREE.MeshBasicMaterial({ color: 0xffd23a, transparent: true, opacity: 0.7, side: THREE.DoubleSide }));
+    h.aura.rotation.x = -Math.PI / 2;
+    this.world.scene.add(h.aura);
+  }
+
+  /** Name of tonight's boss hero while it still has to be beaten, or null. */
+  bossToBeat(): string | null {
+    const c = CHAMPIONS.find((x) => x.night - 1 === this.night);
+    return c && !c.final && !this.bossBeaten ? c.name : null;
   }
 
   private pickKind(): HeroKind {
@@ -928,7 +976,7 @@ export class Game {
       variant: Math.random() < 0.5 ? 0 : 1, champ: 0, turn: x < this.x ? 1 : -1,
       action: kind === 'archer' ? 'shoot' : kind === 'healer' ? 'raise' : 'swing', actT: 0, actDur: 0.4, hitT: 0,
       goal: def.saboteur ? 'sabotage' : kind === 'rogue' ? 'loot' : kind !== 'champion' && !def.flying && !def.shield && Math.random() < this.lootShare() ? 'loot' : 'boss',
-      carry: 0, grabT: 0, slowT: 0, iceT: 0,
+      carry: 0, grabT: 0, slowT: 0, iceT: 0, power: null, powerT: 0, power2T: 0, guard: 0, look: null, decoy: false,
       shield: def.shield === true, target: null, workT: 0, bossLaunch: false, lastHit: 'boss',
     };
     // A few regular heroes wear visible gamer tags so the crowd reads as "other players".
@@ -950,7 +998,7 @@ export class Game {
   }
 
   private dropExtras(h: Hero): void {
-    if (h.label) { h.label.remove(); if (h.kind !== 'champion') this.labels--; h.label = null; }
+    if (h.label) { h.label.remove(); if (h.kind !== 'champion' && !h.decoy) this.labels--; h.label = null; }
     if (h.aura) { this.world.scene.remove(h.aura); h.aura = null; }
   }
 
@@ -958,6 +1006,8 @@ export class Game {
     const dmgScale = (1 + this.time / 400) * this.difficulty.damage;
     const decay = Math.exp(-8 * dt);
     let contact = 0;
+    const rally = this.champions.some((c) => c.power === 'rally' || (c.power === 'chosen' && c.hp < c.maxHp * 0.66));
+    this.updateVolleys(dt, dmgScale);
     for (const h of this.heroes) {
       if (!h.alive) continue;
       const def = h.def;
@@ -976,6 +1026,7 @@ export class Game {
         h.kx *= decay; h.kz *= decay;
         continue;
       }
+      if (h.power) this.championPower(h, dt);
       if (h.goal === 'loot' && this.heist(h, dt, decay)) continue;
       if (h.goal === 'sabotage' && this.sabotage(h, dt, decay)) continue;
       let dx = this.x - h.x, dz = this.z - h.z;
@@ -992,7 +1043,7 @@ export class Game {
         continue;
       }
 
-      let speed = def.speed;
+      let speed = def.speed * (rally && h.kind === 'noob' ? CHAMPION_POWERS.rally.noobSpeed : 1);
       let mx = dx, mz = dz;
       // Beyond arm's reach, heroes follow the castle's walkable path to the boss instead of walking into walls.
       if (d > 3 && !def.flying) { const st = this.castle.steer('boss', h.x, h.z); if (st) { mx = st[0]; mz = st[1]; } }
@@ -1008,7 +1059,7 @@ export class Game {
         if (d < want * 0.7) { mx = -dx; mz = -dz; }
         else if (d < want) { const s = Math.sin(h.phase) > 0 ? 1 : -1; mx = -dz * s * 0.6; mz = dx * s * 0.6; }
       }
-      if (def.ranged) {
+      if (def.ranged && (h.kind !== 'champion' || CHAMPIONS[h.champ]?.shoots !== false)) {
         h.cd -= dt;
         if (h.cd <= 0 && d < def.ranged.range) {
           h.cd = def.ranged.cooldown * (0.8 + Math.random() * 0.4);
@@ -1090,7 +1141,7 @@ export class Game {
       if (h.grabT >= TREASURE.grabTime) {
         h.grabT = 0;
         this.nightGrabs++;
-        h.carry = Math.min(TREASURE.carry, Math.max(0, this.treasure));
+        h.carry = Math.min(h.power === 'heist' ? CHAMPION_POWERS.heist.carry : TREASURE.carry, Math.max(0, this.treasure));
         this.treasure -= h.carry;
         sfx.steal();
         if (!this.warnedThief) {
@@ -1106,7 +1157,7 @@ export class Game {
       this.escape(h);
       return true;
     } else {
-      let speed = h.def.speed * (h.carry > 0 ? this.getaway() : 1);
+      let speed = h.def.speed * (h.carry > 0 ? (h.power === 'heist' ? CHAMPION_POWERS.heist.getaway : this.getaway()) : 1);
       if (h.slowT > 0) { h.slowT -= dt; speed *= CASTLE.spikeSlow; }
       h.phase += dt * speed * 2.2;
       const px = h.x, pz = h.z;
@@ -1230,6 +1281,93 @@ export class Game {
     return true;
   }
 
+  /** Each boss hero's signature move; the Chosen One gains more of them as his health drops. */
+  private championPower(h: Hero, dt: number): void {
+    const P = CHAMPION_POWERS;
+    h.powerT -= dt;
+    h.power2T -= dt;
+    h.guard = Math.max(0, h.guard - dt);
+    const ratio = h.hp / h.maxHp;
+    const rally = h.power === 'rally' || (h.power === 'chosen' && ratio < 0.66);
+    const volley = h.power === 'volley' || (h.power === 'chosen' && ratio < 0.33);
+    if (rally && h.powerT <= 0) {
+      h.powerT = P.rally.every;
+      for (let i = 0; i < P.rally.squad && this.heroes.length < RUN.maxHeroes; i++) {
+        const a = (i / P.rally.squad) * Math.PI * 2;
+        const n = this.addHero('noob', h.x + Math.cos(a) * 2.5, h.z + Math.sin(a) * 2.5);
+        n.goal = 'boss';
+      }
+      this.chatter.say(h, 'SQUAD, ATTACK!', 2.4 * h.def.scale + 0.6, true);
+      this.fx.ring(h.x, h.z, 3, 0x2f7dff, 0.4);
+    }
+    if (volley && (h.power === 'volley' ? h.powerT : h.power2T) <= 0) {
+      if (h.power === 'volley') h.powerT = P.volley.every; else h.power2T = P.volley.every + 1;
+      for (let i = 0; i < P.volley.count; i++) {
+        const a = Math.random() * Math.PI * 2, d = i === 0 ? 0 : 2 + Math.random() * 4;
+        this.volleys.push({ x: this.x + Math.cos(a) * d, z: this.z + Math.sin(a) * d, t: P.volley.warn, ring: 0 });
+      }
+      this.act(h, 'shoot', 0.45);
+    }
+    if (h.power === 'guard' && h.powerT <= 0) {
+      h.powerT = P.guard.up + P.guard.down;
+      h.guard = P.guard.up;
+    }
+    if (h.power === 'guard') {
+      if (h.guard > 0 && Math.random() < dt * 5) this.fx.ring(h.x, h.z, 1.9, 0xffd23a, 0.25);
+      // The moment the shield drops, he charges.
+      if (h.guard > 0 && h.guard - dt <= 0 && h.def.dash) { h.dashT = h.def.dash.duration * 1.6; h.dashCd = h.def.dash.cooldown; }
+    }
+    if (h.power === 'clones' && h.powerT <= 0) {
+      h.powerT = P.clones.every;
+      const fakes: Hero[] = [];
+      for (let i = 0; i < P.clones.count && this.heroes.length < RUN.maxHeroes; i++) {
+        const a = Math.random() * Math.PI * 2;
+        const d = this.addHero('sweat', h.x + Math.cos(a) * 3, h.z + Math.sin(a) * 3);
+        d.def = DECOY; d.decoy = true; d.look = 'clutch'; d.goal = 'boss'; d.carry = 0;
+        d.hp = d.maxHp = HEROES.champion.hp * P.clones.hp * this.difficulty.hp;
+        d.tag = h.tag; d.label = h.tag ? this.makeLabel(h.tag, true) : null;
+        this.addAura(d);
+        fakes.push(d);
+        this.fx.burst(d.x, 1.5, d.z, 0x7a2cff, 14, 6, 0.22);
+      }
+      // Swap places with a fake so the player loses track of the real one.
+      const swap = fakes[Math.floor(Math.random() * fakes.length)];
+      if (swap) { [h.x, swap.x] = [swap.x, h.x]; [h.z, swap.z] = [swap.z, h.z]; }
+      this.chatter.say(h, 'Which one is real? 😏', 2.4 * h.def.scale + 0.6, true);
+    }
+    if ((h.power === 'mend' && h.powerT <= 0) || (h.power === 'chosen' && ratio < 0.33 && h.powerT <= 0)) {
+      h.powerT = P.mend.every * (h.power === 'chosen' ? 2 : 1);
+      this.fx.ring(h.x, h.z, P.mend.radius, 0x7dffb0, 0.5);
+      this.near(h.x, h.z, P.mend.radius, (o) => {
+        if (o === h || o.hp >= o.maxHp) return;
+        o.hp = Math.min(o.maxHp, o.hp + o.maxHp * P.mend.share);
+        this.fx.burst(o.x, 1.2, o.z, 0x7dffb0, 2, 2, 0.15);
+      });
+      this.act(h, 'raise', 0.6);
+    }
+  }
+
+  /** Arrow volleys: a red circle warns, then the arrows land and hurt the boss if it is still inside. */
+  private updateVolleys(dt: number, dmgScale: number): void {
+    const V = CHAMPION_POWERS.volley;
+    for (let i = this.volleys.length - 1; i >= 0; i--) {
+      const v = this.volleys[i];
+      v.t -= dt; v.ring -= dt;
+      if (v.ring <= 0 && v.t > 0) { v.ring = 0.25; this.fx.ring(v.x, v.z, V.radius, 0xff3d5a, 0.25); }
+      if (v.t > 0) continue;
+      this.volleys.splice(i, 1);
+      this.fx.burst(v.x, 0.4, v.z, 0x8a5a2b, 12, 6, 0.18);
+      this.flash('boom', v.x, 0.2, v.z, 1.4, 0.15);
+      if (Math.hypot(this.x - v.x, this.z - v.z) < V.radius + this.radius * 0.5) {
+        const dmg = V.damage * dmgScale;
+        this.hurtBoss(dmg);
+        // Counted with contact damage, as champion hits are, so the damage shares still add up.
+        this.taken.champion += dmg;
+        this.taken.contact += dmg;
+      }
+    }
+  }
+
   /** Speed of a thief carrying gold: slow on the learning nights, then the tier's own. */
   private getaway(): number {
     return this.night < TREASURE.slowNights ? Math.min(TREASURE.earlyGetaway, this.difficulty.getaway) : this.difficulty.getaway;
@@ -1237,6 +1375,11 @@ export class Game {
 
   private escape(h: Hero): void {
     h.alive = false;
+    if (h.kind === 'champion') {
+      // A boss hero that gets away comes back later; the night still waits for him.
+      this.champions = this.champions.filter((c) => c !== h);
+      this.bossReturn = { at: this.nightTime + CHAMPION_POWERS.heist.back, hp: h.hp };
+    }
     this.stolen += h.carry;
     this.nightStolen += h.carry;
     this.nightEscapes++;
@@ -1322,7 +1465,7 @@ export class Game {
       sfx.stomp();
     }
     const crit = src === 'boss' && Math.random() < 0.1;
-    const dmg = src === 'boss' ? base * this.dmgMul * (this.frenzy > 0 ? 1.5 : 1) * (crit ? 2 : 1) * (h.iceT > 0 ? FROST.shatter : 1) : base;
+    const dmg = (src === 'boss' ? base * this.dmgMul * (this.frenzy > 0 ? 1.5 : 1) * (crit ? 2 : 1) * (h.iceT > 0 ? FROST.shatter : 1) : base) * (h.guard > 0 ? CHAMPION_POWERS.guard.taken : 1);
     h.lastHit = src;
     h.hp -= dmg;
     h.flash = 0.1;
@@ -1359,7 +1502,11 @@ export class Game {
     if (Math.random() < 0.05 && this.chatter.busy < 3) this.chatter.say({ x: h.x, z: h.z, alive: false }, pick(LINES.defeated), 2.2 * h.def.scale);
     if (h.kind === 'champion') {
       this.championsBeaten++;
+      this.bossBeaten = true;
       this.champions = this.champions.filter((c) => c !== h);
+      // The fakes vanish with the real one.
+      for (const d of this.heroes) if (d.decoy && d.alive) { d.alive = false; this.dropExtras(d); this.fx.burst(d.x, 1.5, d.z, 0x7a2cff, 16, 6, 0.22); }
+      this.chestReward = CHAMPIONS[h.champ]?.chest ?? { gold: 0, levels: 0 };
       this.world.addShake(0.8);
       this.fx.burst(h.x, 1.5, h.z, 0xffd23a, 60, 12, 0.3);
       if (h.final) { this.finish(true, 'win'); return; }
@@ -1922,8 +2069,8 @@ export class Game {
       this.chest = null;
       this.chestMesh.visible = false;
       this.hp = Math.min(this.maxHp, this.hp + this.maxHp * 0.3);
-      this.pendingLevels += 2;
-      this.treasure += 25;
+      this.pendingLevels += this.chestReward.levels;
+      this.treasure += this.chestReward.gold;
       this.hooks.banner('TREASURE!', '+25 gold, +2 upgrades and a big snack');
     }
   }
@@ -2250,6 +2397,7 @@ export class Game {
 
   private castIndex(h: Hero): number {
     // A Shieldbearer whose shield broke is drawn as a plain knight, so the change is visible.
+    if (h.look) return CAST.indexOf(h.look);
     if (h.kind === 'shieldbearer' && !h.shield) return CAST.indexOf('knight');
     return CAST.indexOf(castFor(h.kind, h.variant, h.champ));
   }

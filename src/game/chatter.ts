@@ -11,7 +11,7 @@ export const LINES = {
   escaped: ['ez loot', 'gg no re', 'see ya boss!', 'LOOT GET', 'too slow!'],
 };
 
-export const CHAMPION_LINES = ['Behold... a TRYHARD!', '1v1 me. No items.', 'It is my DESTINY!'];
+export const CHAMPION_LINES = ['SQUAD, ASSEMBLE!', 'Behold... a TRYHARD!', 'No scope. No mercy.', '1v1 me. No items.', 'Nobody dies on MY watch!', 'Yoink! Your gold is MINE!', 'It is my DESTINY!'];
 
 interface Bubble { el: HTMLDivElement; target: { x: number; z: number; alive?: boolean }; x: number; z: number; height: number; life: number; age: number }
 

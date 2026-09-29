@@ -139,7 +139,8 @@ export class Ui {
     $('lvl').textContent = `LV ${g.level}`;
     $('hpfill').style.width = `${Math.max(0, (g.hp / g.maxHp) * 100)}%`;
     $('hptext').textContent = `${Math.max(0, Math.ceil(g.hp))} / ${Math.round(g.maxHp)}`;
-    $('timer').textContent = g.night === NIGHTS.length - 1 ? `NIGHT ${g.night + 1}` : `NIGHT ${g.night + 1} · ${fmt(g.nightLeft())}`;
+    const boss = g.nightLeft() <= 0 ? g.bossToBeat() : null;
+    $('timer').textContent = g.night === NIGHTS.length - 1 ? `NIGHT ${g.night + 1}` : boss ? `NIGHT ${g.night + 1} · ⚔️ BEAT ${boss.toUpperCase()}` : `NIGHT ${g.night + 1} · ${fmt(g.nightLeft())}`;
     $('vaultfill').style.width = `${Math.min(100, (g.treasure / TREASURE.start) * 100)}%`;
     $('vaulttext').textContent = `💰 ${g.treasure}`;
     const thieves = g.heroes.some((h) => h.alive && h.carry > 0);
